@@ -1,3 +1,7 @@
+<script lang="ts">
+	import * as paths from '$app/paths';
+</script>
+
 <svelte:head>
 	<title>Nawab Auth</title>
 	<meta name="description" content="Nawab Auth" />
@@ -5,7 +9,7 @@
 
 <main class="page">
 	<h1>Nawab Auth</h1>
-	<a href="/login" class="login-link">Login</a>
+	<a href={paths.resolve('/login')} class="login-link">Login</a>
 </main>
 
 <style>
