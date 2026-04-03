@@ -1,17 +1,58 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
+	import { onDestroy } from 'svelte';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
 
 	let loading = $state(false);
 	let otpSent = $state(false);
+	let emailAddress = $state('');
+	let otpCode = $state('');
 	let oauthError = $state<string | null>(null);
+	let sendingOtp = $state(false);
+	let cooldownEndsAt = $state(0);
+	let now = $state(Date.now());
+
+	const tick = setInterval(() => {
+		now = Date.now();
+	}, 250);
+
+	onDestroy(() => {
+		clearInterval(tick);
+	});
+
+	let cooldownSecondsRemaining = $derived(
+		cooldownEndsAt > now ? Math.ceil((cooldownEndsAt - now) / 1000) : 0
+	);
+	let sendOtpDisabled = $derived(sendingOtp || cooldownSecondsRemaining > 0);
 
 	$effect(() => {
 		if (form?.otpSent) {
 			otpSent = true;
+			emailAddress = form.email ?? emailAddress;
+			otpCode = '';
+		}
+
+		if (form?.cooldownRemaining && form.cooldownRemaining > 0) {
+			cooldownEndsAt = Date.now() + form.cooldownRemaining * 1000;
 		}
 	});
+
+	const enhanceSendOtp: SubmitFunction = () => {
+		sendingOtp = true;
+		return async ({ update }) => {
+			await update();
+			sendingOtp = false;
+		};
+	};
+
+	const enhanceVerifyOtp: SubmitFunction = () => {
+		return async ({ update }) => {
+			await update();
+		};
+	};
 
 	function getProviderDisplayName(provider: string): string {
 		const names: Record<string, string> = {
@@ -102,21 +143,67 @@
 		<!-- Email OTP Authentication -->
 		{#if data.oauthSettings.emailEnabled}
 			<div class="email-section">
-				<form method="POST" action="?/sendOtp" class="form-stack">
+				<form method="POST" action="?/sendOtp" use:enhance={enhanceSendOtp} class="form-stack">
 					<input type="hidden" name="return_to" value={data.returnTo} />
-					<label>
-						<span>Email</span>
-						<input type="email" name="email" required autocomplete="email" value={form?.email ?? ''} disabled={otpSent} />
-					</label>
-					{#if otpSent}
-						<p class="success-message">✓ Check your email for the verification link</p>
-					{:else if form?.message}
-						<p class="error-message">{form.message}</p>
+					{#if !otpSent}
+						<label>
+							<span>Email</span>
+							<input
+								type="email"
+								name="email"
+								required
+								autocomplete="email"
+								bind:value={emailAddress}
+								readonly={sendingOtp}
+							/>
+						</label>
+					{:else}
+						<input type="hidden" name="email" value={emailAddress} />
+						<p class="otp-email-text">Code sent to {emailAddress}</p>
 					{/if}
-					<button type="submit" class="primary" disabled={otpSent || loading}>
-						{otpSent ? 'OTP Sent' : 'Send OTP'}
+
+					{#if form?.message && !form?.token}
+						{#if !form?.otpSent}
+							<p class="error-message">{form.message}</p>
+						{/if}
+					{/if}
+
+					<button type="submit" class="primary" disabled={sendOtpDisabled} aria-busy={sendingOtp}>
+						{#if sendingOtp}
+							Sending code...
+						{:else if cooldownSecondsRemaining > 0}
+							Resend in {cooldownSecondsRemaining}s
+						{:else}
+							{otpSent ? 'Resend OTP' : 'Send code'}
+						{/if}
 					</button>
 				</form>
+
+				{#if otpSent}
+					<form method="POST" action="?/verifyOtp" use:enhance={enhanceVerifyOtp} class="form-stack verify-form">
+						<input type="hidden" name="return_to" value={data.returnTo} />
+						<input type="hidden" name="email" value={emailAddress} />
+						<label>
+							<span>Verification code</span>
+							<input
+								type="text"
+								name="token"
+								required
+								inputmode="numeric"
+								autocomplete="one-time-code"
+								maxlength="6"
+								placeholder="123456"
+								bind:value={otpCode}
+							/>
+						</label>
+						{#if form?.message && !form?.otpSent}
+							<p class="error-message">{form.message}</p>
+						{:else}
+							<p class="success-message">Enter the 6-digit code from your email to finish sign in.</p>
+						{/if}
+						<button type="submit" class="primary" disabled={loading}>Verify code</button>
+					</form>
+				{/if}
 			</div>
 		{/if}
 
@@ -172,6 +259,10 @@
 
 	.email-section {
 		margin-bottom: 1.5rem;
+	}
+
+	.verify-form {
+		margin-top: 1rem;
 	}
 
 	.section-label {
@@ -353,6 +444,12 @@
 		border-radius: 0.375rem;
 		font-size: 0.9rem;
 		margin: 0 0 1rem;
+	}
+
+	.otp-email-text {
+		font-size: 0.85rem;
+		color: #9ca3af;
+		margin: 0;
 	}
 
 	.footer-text {

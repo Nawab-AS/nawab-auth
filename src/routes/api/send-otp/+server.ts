@@ -29,10 +29,7 @@ export async function POST({ request }) {
 
 		// Send OTP via Supabase Auth
 		const { data, error } = await client.auth.signInWithOtp({
-			email: email.toLowerCase().trim(),
-			options: {
-				emailRedirectTo: `${new URL(request.url).origin}/auth/callback`
-			}
+			email: email.toLowerCase().trim()
 		});
 
 		if (error) {

@@ -1,12 +1,20 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, isRedirect, redirect } from '@sveltejs/kit';
+import { createClient } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
-import { getSupabaseUrl } from '$lib/server/supabase';
+import {
+	getSupabaseAnonKey,
+	getSupabaseUrl,
+	setSupabaseAccessCookie
+} from '$lib/server/supabase';
 
 interface OAuthSettings {
 	providers: string[];
 	emailEnabled: boolean;
 	signupDisabled: boolean;
 }
+
+const OTP_COOLDOWN_MS = 45_000;
+const otpCooldownByEmail = new Map<string, number>();
 
 export const load: PageServerLoad = async ({ url, fetch, locals }) => {
 	const user = locals.user;
@@ -53,11 +61,24 @@ export const actions: Actions = {
 			return fail(400, { message: 'Email is required.', returnTo, email });
 		}
 
+		const normalizedEmail = email.toLowerCase();
+		const now = Date.now();
+		const nextAllowedAt = otpCooldownByEmail.get(normalizedEmail) ?? 0;
+		if (nextAllowedAt > now) {
+			const remainingSeconds = Math.ceil((nextAllowedAt - now) / 1000);
+			return fail(429, {
+				message: `Please wait ${remainingSeconds}s before requesting another code.`,
+				returnTo,
+				email,
+				cooldownRemaining: remainingSeconds
+			});
+		}
+
 		try {
 			const response = await fetch('/api/send-otp', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email })
+				body: JSON.stringify({ email: normalizedEmail })
 			});
 
 			const data = await response.json();
@@ -70,16 +91,68 @@ export const actions: Actions = {
 				});
 			}
 
+			otpCooldownByEmail.set(normalizedEmail, now + OTP_COOLDOWN_MS);
+
 			return {
 				success: true,
-				message: `OTP sent to ${email}. Check your inbox.`,
+				message: `OTP sent to ${email}. Check your inbox for the 6-digit code.`,
 				returnTo,
 				otpSent: true,
-				email
+				email,
+				cooldownRemaining: Math.ceil(OTP_COOLDOWN_MS / 1000)
 			};
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to send OTP.';
 			return fail(500, { message, returnTo, email });
+		}
+	},
+	verifyOtp: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const email = String(formData.get('email') ?? '').trim();
+		const token = String(formData.get('token') ?? '').trim();
+		const returnTo = String(formData.get('return_to') ?? '/dashboard').trim() || '/dashboard';
+
+		if (!email) {
+			return fail(400, { message: 'Email is required.', returnTo, email, token });
+		}
+
+		if (!token) {
+			return fail(400, { message: 'OTP code is required.', returnTo, email, token });
+		}
+
+		try {
+			const client = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+				auth: {
+					autoRefreshToken: false,
+					persistSession: false,
+					detectSessionInUrl: false
+				}
+			});
+
+			const { data, error } = await client.auth.verifyOtp({
+				email: email.toLowerCase(),
+				token,
+				type: 'email'
+			});
+
+			if (error || !data.session?.access_token) {
+				return fail(400, {
+					message: error?.message ?? 'Failed to verify OTP code.',
+					returnTo,
+					email,
+					token
+				});
+			}
+
+			setSupabaseAccessCookie(cookies, data.session.access_token);
+			throw redirect(303, returnTo);
+		} catch (err) {
+			if (isRedirect(err)) {
+				throw err;
+			}
+
+			const message = err instanceof Error ? err.message : 'Failed to verify OTP code.';
+			return fail(500, { message, returnTo, email, token });
 		}
 	}
 };
