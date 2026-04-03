@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
-import { env } from '$env/dynamic/private';
+import { getSupabaseAnonKey, getSupabaseUrl } from '$lib/server/supabase';
 
 /**
  * Send OTP to email for passwordless login
@@ -16,15 +16,8 @@ export async function POST({ request }) {
 			);
 		}
 
-		const supabaseUrl = env.SUPABASE_URL?.trim();
-		const anonKey = env.SUPABASE_ANON_KEY?.trim();
-
-		if (!supabaseUrl || !anonKey) {
-			return json(
-				{ error: 'Missing Supabase configuration' },
-				{ status: 500 }
-			);
-		}
+		const supabaseUrl = getSupabaseUrl();
+		const anonKey = getSupabaseAnonKey();
 
 		const client = createClient(supabaseUrl, anonKey, {
 			auth: {

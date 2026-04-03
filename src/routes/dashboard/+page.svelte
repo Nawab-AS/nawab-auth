@@ -34,6 +34,9 @@
 				<span>Active key</span>
 				<strong>{data.activeKeyId ?? 'Not linked'}</strong>
 			</div>
+			<form method="POST" action="/logout" class="logout-form">
+				<button type="submit" class="logout-button">Log out</button>
+			</form>
 		</div>
 	</section>
 
@@ -148,6 +151,21 @@
 		padding: 1.25rem;
 		display: grid;
 		gap: 1rem;
+	}
+
+	.logout-form {
+		margin-top: 0.5rem;
+	}
+
+	.logout-button {
+		width: 100%;
+		background: #2a2f38;
+		color: #e5e7eb;
+		border: 1px solid #3b4250;
+	}
+
+	.logout-button:hover {
+		background: #343a45;
 	}
 
 	.status-card span,

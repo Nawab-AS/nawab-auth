@@ -1,7 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
-import { env } from '$env/dynamic/private';
-import { setSupabaseAccessCookie } from '$lib/server/supabase';
+import { getSupabaseAnonKey, getSupabaseUrl, setSupabaseAccessCookie } from '$lib/server/supabase';
 import type { RequestHandler } from '@sveltejs/kit';
 
 /**
@@ -10,12 +9,8 @@ import type { RequestHandler } from '@sveltejs/kit';
  */
 export const GET: RequestHandler = async ({ url, cookies }) => {
 	try {
-		const supabaseUrl = env.SUPABASE_URL?.trim();
-		const anonKey = env.SUPABASE_ANON_KEY?.trim();
-
-		if (!supabaseUrl || !anonKey) {
-			throw new Error('Missing Supabase configuration');
-		}
+		const supabaseUrl = getSupabaseUrl();
+		const anonKey = getSupabaseAnonKey();
 
 		const client = createClient(supabaseUrl, anonKey, {
 			auth: {

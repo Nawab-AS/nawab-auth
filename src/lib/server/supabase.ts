@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
+import { env as publicEnv } from '$env/dynamic/public';
 import type { Cookies } from '@sveltejs/kit';
 
 export interface SupabaseSessionUser {
@@ -7,23 +8,24 @@ export interface SupabaseSessionUser {
 	email: string;
 	emailVerified: boolean;
 	name: string;
+	isAdmin?: boolean;
 }
 
 const ACCESS_COOKIE = 'sb_access_token';
 
-function getSupabaseUrl() {
-	const url = env.SUPABASE_URL?.trim();
+export function getSupabaseUrl() {
+	const url = env.SUPABASE_URL?.trim() || publicEnv.PUBLIC_SUPABASE_URL?.trim();
 	if (!url) {
-		throw new Error('Missing SUPABASE_URL');
+		throw new Error('Missing SUPABASE_URL or PUBLIC_SUPABASE_URL');
 	}
 
 	return url;
 }
 
-function getSupabaseAnonKey() {
-	const key = env.SUPABASE_ANON_KEY?.trim();
+export function getSupabaseAnonKey() {
+	const key = env.SUPABASE_ANON_KEY?.trim() || publicEnv.PUBLIC_SUPABASE_ANON_KEY?.trim();
 	if (!key) {
-		throw new Error('Missing SUPABASE_ANON_KEY');
+		throw new Error('Missing SUPABASE_ANON_KEY or PUBLIC_SUPABASE_ANON_KEY');
 	}
 
 	return key;
@@ -58,7 +60,8 @@ export async function getSupabaseUserFromAccessToken(accessToken: string): Promi
 		id: data.user.id,
 		email: data.user.email ?? '',
 		emailVerified: Boolean(data.user.email_confirmed_at),
-		name: data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? data.user.email ?? data.user.id
+		name: data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? data.user.email ?? data.user.id,
+		isAdmin: data.user.user_metadata?.isAdmin === true || data.user.user_metadata?.role === 'admin'
 	};
 }
 
@@ -93,7 +96,8 @@ export async function signInWithEmailPassword(email: string, password: string) {
 					data.user.user_metadata?.full_name ??
 					data.user.user_metadata?.name ??
 					data.user.email ??
-					data.user.id
+					data.user.id,
+				isAdmin: data.user.user_metadata?.isAdmin === true || data.user.user_metadata?.role === 'admin'
 			}
 		}
 	} as const;

@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
+import { getSupabaseUrl, getSupabaseAnonKey } from '$lib/server/supabase';
 
 interface SupabaseAuthSettings {
 	external: Record<string, boolean>;
@@ -13,15 +13,8 @@ interface SupabaseAuthSettings {
  */
 export async function GET() {
 	try {
-		const supabaseUrl = env.SUPABASE_URL?.trim();
-		const anonKey = env.SUPABASE_ANON_KEY?.trim();
-
-		if (!supabaseUrl || !anonKey) {
-			return json(
-				{ error: 'Missing Supabase configuration' },
-				{ status: 400 }
-			);
-		}
+		const supabaseUrl = getSupabaseUrl();
+		const anonKey = getSupabaseAnonKey();
 
 		const settingsUrl = new URL('/auth/v1/settings', supabaseUrl);
 		settingsUrl.searchParams.set('apikey', anonKey);

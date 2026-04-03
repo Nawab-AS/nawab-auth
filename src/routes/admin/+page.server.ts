@@ -1,8 +1,18 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { buildDashboardSnapshot, createRollRequestId } from '$lib/server/oidc';
+import type { PageServerLoad } from './$types';
 
-export const load = ({ url }) => {
+export const load: PageServerLoad = async ({ url, locals }) => {
+	// User is guaranteed to be present due to route protection in hooks.server.ts
+	const user = locals.user;
+
+	// Check if user has admin role
+	if (!user?.isAdmin) {
+		throw redirect(303, '/dashboard');
+	}
+
 	return {
+		user,
 		...buildDashboardSnapshot(),
 		rolled: url.searchParams.get('rolled') === '1',
 		rollRequestId: url.searchParams.get('rollRequestId') ?? null

@@ -44,4 +44,8 @@
 		border-radius: 0.5rem;
 		font-weight: 600;
 	}
+
+	.login-link:hover {
+		background: #d1d5db;
+	}
 </style>

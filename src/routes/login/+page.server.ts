@@ -1,6 +1,6 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { env } from '$env/dynamic/private';
+import { getSupabaseUrl } from '$lib/server/supabase';
 
 interface OAuthSettings {
 	providers: string[];
@@ -8,7 +8,14 @@ interface OAuthSettings {
 	signupDisabled: boolean;
 }
 
-export const load: PageServerLoad = async ({ url, fetch }) => {
+export const load: PageServerLoad = async ({ url, fetch, locals }) => {
+	const user = locals.user;
+
+	// Redirect authenticated users to dashboard
+	if (user) {
+		throw redirect(303, '/dashboard');
+	}
+
 	const returnTo = url.searchParams.get('return_to') ?? '/dashboard';
 	
 	let oauthSettings: OAuthSettings = {
@@ -27,7 +34,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		console.error('Failed to load OAuth settings:', err);
 	}
 
-	const supabaseUrl = env.SUPABASE_URL?.trim() ?? '';
+	const supabaseUrl = getSupabaseUrl();
 
 	return {
 		returnTo,
