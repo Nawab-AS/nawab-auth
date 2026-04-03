@@ -2,6 +2,8 @@ import { env } from '$env/dynamic/private';
 import { importJWK, exportJWK, generateKeyPair, SignJWT, jwtVerify, calculateJwkThumbprint } from 'jose';
 import type { JWK, JWTPayload } from 'jose';
 import type { OAuthOptions } from '@better-auth/oauth-provider';
+import type { SupabaseSessionUser } from '$lib/server/supabase';
+import { getDashboardSnapshot } from '$lib/server/account';
 
 type SigningKey = CryptoKey | Uint8Array;
 
@@ -25,10 +27,12 @@ export interface DashboardSnapshot {
 	emailVerified: boolean;
 	locale: 'en';
 	isAdmin: boolean;
-	totalCreditsUsd: number;
-	pastUsageUsd: number;
+	preferredName: string | null;
+	allowedUsageUsd: number;
+	usageCarriedForwardUsd: number;
 	currentUsageUsd: number;
 	activeKeyId: string | null;
+	apiKeyDisabled: boolean;
 	rolledKeyIds: string[];
 }
 
@@ -462,17 +466,9 @@ export async function revokeToken(token: string) {
 	}
 }
 
-export function buildDashboardSnapshot(): DashboardSnapshot {
-	return {
-		userId: 'supabase-user-id-placeholder',
-		email: 'student@example.edu',
-		emailVerified: true,
-		locale: 'en',
-		isAdmin: true,
-		totalCreditsUsd: 15,
-		pastUsageUsd: 4.25,
-		currentUsageUsd: 1.75,
-		activeKeyId: 'key_live_placeholder',
-		rolledKeyIds: ['key_old_placeholder_1', 'key_old_placeholder_2']
-	};
+export async function buildDashboardSnapshot(
+	user: SupabaseSessionUser,
+	accessToken: string | null
+): Promise<DashboardSnapshot> {
+	return getDashboardSnapshot(user, accessToken);
 }

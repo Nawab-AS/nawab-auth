@@ -41,6 +41,21 @@ function createSupabaseClient() {
 	});
 }
 
+export function createSupabaseAuthedClient(accessToken: string) {
+	return createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+		auth: {
+			autoRefreshToken: false,
+			persistSession: false,
+			detectSessionInUrl: false
+		},
+		global: {
+			headers: {
+				Authorization: `Bearer ${accessToken}`
+			}
+		}
+	});
+}
+
 export function getAccessTokenFromCookies(cookies: Cookies) {
 	return cookies.get(ACCESS_COOKIE)?.trim() ?? null;
 }

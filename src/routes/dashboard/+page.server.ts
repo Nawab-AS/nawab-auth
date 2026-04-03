@@ -1,15 +1,18 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { buildDashboardSnapshot, createRollRequestId } from '$lib/server/oidc';
+import { getAccessTokenFromCookies } from '$lib/server/supabase';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ url, locals }) => {
+export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	// User is guaranteed to be present due to route protection in hooks.server.ts
 	// But we can assert it here for type safety if needed
 	const user = locals.user;
+	const accessToken = getAccessTokenFromCookies(cookies);
+	const snapshot = await buildDashboardSnapshot(user!, accessToken);
 
 	return {
 		user,
-		...buildDashboardSnapshot(),
+		...snapshot,
 		rolled: url.searchParams.get('rolled') === '1',
 		rollRequestId: url.searchParams.get('rollRequestId') ?? null
 	};

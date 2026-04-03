@@ -3,7 +3,9 @@
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
 
-	const remainingCredits = $derived(data.totalCreditsUsd - data.pastUsageUsd - data.currentUsageUsd);
+	const remainingCredits = $derived(
+		data.allowedUsageUsd - data.usageCarriedForwardUsd - data.currentUsageUsd
+	);
 </script>
 
 <svelte:head>
@@ -23,6 +25,10 @@
 
 		<div class="status-card">
 			<div>
+				<span>Preferred name</span>
+				<strong>{data.preferredName ?? data.user!.name}</strong>
+			</div>
+			<div>
 				<span>Locale</span>
 				<strong>{data.locale}</strong>
 			</div>
@@ -31,8 +37,12 @@
 				<strong>{data.isAdmin ? 'Yes' : 'No'}</strong>
 			</div>
 			<div>
-				<span>Active key</span>
+				<span>API key</span>
 				<strong>{data.activeKeyId ?? 'Not linked'}</strong>
+			</div>
+			<div>
+				<span>Key disabled</span>
+				<strong>{data.apiKeyDisabled ? 'Yes' : 'No'}</strong>
 			</div>
 			<form method="POST" action="/logout" class="logout-form">
 				<button type="submit" class="logout-button">Log out</button>
@@ -42,12 +52,12 @@
 
 	<section class="metrics">
 		<article>
-			<span>Total allowance</span>
-			<strong>${data.totalCreditsUsd.toFixed(2)}</strong>
+			<span>Allowed usage</span>
+			<strong>${data.allowedUsageUsd.toFixed(2)}</strong>
 		</article>
 		<article>
-			<span>Past usage</span>
-			<strong>${data.pastUsageUsd.toFixed(2)}</strong>
+			<span>Usage carried forward</span>
+			<strong>${data.usageCarriedForwardUsd.toFixed(2)}</strong>
 		</article>
 		<article>
 			<span>Current key usage</span>

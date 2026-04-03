@@ -19,6 +19,10 @@
 
 		<div class="grid">
 			<div>
+				<span>Preferred name</span>
+				<strong>{data.preferredName ?? data.user!.name}</strong>
+			</div>
+			<div>
 				<span>Admin access</span>
 				<strong>{data.isAdmin ? 'Enabled' : 'Locked'}</strong>
 			</div>
@@ -27,12 +31,12 @@
 				<strong>{data.userId}</strong>
 			</div>
 			<div>
-				<span>Historical key rolls</span>
-				<strong>{data.rolledKeyIds.length}</strong>
+				<span>API key</span>
+				<strong>{data.activeKeyId ?? 'Not linked'}</strong>
 			</div>
 			<div>
 				<span>Remaining credits</span>
-				<strong>${(data.totalCreditsUsd - data.pastUsageUsd - data.currentUsageUsd).toFixed(2)}</strong>
+				<strong>${(data.allowedUsageUsd - data.usageCarriedForwardUsd - data.currentUsageUsd).toFixed(2)}</strong>
 			</div>
 		</div>
 
