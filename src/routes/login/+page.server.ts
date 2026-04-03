@@ -2,10 +2,12 @@ import { fail, isRedirect, redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
 import {
+	getAccessTokenFromCookies,
 	getSupabaseAnonKey,
 	getSupabaseUrl,
 	setSupabaseAccessCookie
 } from '$lib/server/supabase';
+import { isUserOnboarded } from '$lib/server/account';
 
 interface OAuthSettings {
 	providers: string[];
@@ -144,7 +146,23 @@ export const actions: Actions = {
 				});
 			}
 
+			if (!data.user) {
+				return fail(400, {
+					message: 'Failed to resolve user for OTP verification.',
+					returnTo,
+					email,
+					token
+				});
+			}
+
 			setSupabaseAccessCookie(cookies, data.session.access_token);
+
+			const accessToken = getAccessTokenFromCookies(cookies);
+			const onboarded = await isUserOnboarded(data.user.id, accessToken);
+			if (!onboarded) {
+				throw redirect(303, '/onboarding');
+			}
+
 			throw redirect(303, returnTo);
 		} catch (err) {
 			if (isRedirect(err)) {

@@ -1,6 +1,13 @@
 import { redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
-import { getSupabaseAnonKey, getSupabaseUrl, setSupabaseAccessCookie } from '$lib/server/supabase';
+import {
+	getAccessTokenFromCookies,
+	getSupabaseAnonKey,
+	getSupabaseUserFromAccessToken,
+	getSupabaseUrl,
+	setSupabaseAccessCookie
+} from '$lib/server/supabase';
+import { isUserOnboarded } from '$lib/server/account';
 import type { RequestHandler } from '@sveltejs/kit';
 
 /**
@@ -50,6 +57,15 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 			}
 
 			setSupabaseAccessCookie(cookies, data.session.access_token);
+		}
+
+		const accessToken = getAccessTokenFromCookies(cookies);
+		const user = accessToken ? await getSupabaseUserFromAccessToken(accessToken) : null;
+		if (user) {
+			const onboarded = await isUserOnboarded(user.id, accessToken);
+			if (!onboarded) {
+				throw redirect(303, '/onboarding');
+			}
 		}
 
 		const returnTo = url.searchParams.get('return_to') ?? '/dashboard';

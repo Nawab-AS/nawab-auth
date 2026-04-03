@@ -31,7 +31,6 @@ export interface DashboardSnapshot {
 	allowedUsageUsd: number;
 	usageCarriedForwardUsd: number;
 	currentUsageUsd: number;
-	activeKeyId: string | null;
 	apiKeyDisabled: boolean;
 	rolledKeyIds: string[];
 }

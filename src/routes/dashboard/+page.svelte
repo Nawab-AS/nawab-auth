@@ -29,24 +29,20 @@
 				<strong>{data.preferredName ?? data.user!.name}</strong>
 			</div>
 			<div>
-				<span>Locale</span>
-				<strong>{data.locale}</strong>
+				<span>Linked email</span>
+				<strong>{data.user!.email}</strong>
 			</div>
-			<div>
-				<span>Admin</span>
-				<strong>{data.isAdmin ? 'Yes' : 'No'}</strong>
+			<div class="status-actions">
+				<form method="POST" action="/logout" class="logout-form">
+					<button type="submit" class="logout-button">Log out</button>
+				</form>
+
+				{#if data.isAdmin}
+					<form method="GET" action="/admin" class="admin-form">
+						<button type="submit" class="admin-button">Admin dashboard</button>
+					</form>
+				{/if}
 			</div>
-			<div>
-				<span>API key</span>
-				<strong>{data.activeKeyId ?? 'Not linked'}</strong>
-			</div>
-			<div>
-				<span>Key disabled</span>
-				<strong>{data.apiKeyDisabled ? 'Yes' : 'No'}</strong>
-			</div>
-			<form method="POST" action="/logout" class="logout-form">
-				<button type="submit" class="logout-button">Log out</button>
-			</form>
 		</div>
 	</section>
 
@@ -163,12 +159,35 @@
 		gap: 1rem;
 	}
 
+	.status-actions {
+		display: grid;
+		gap: 0.75rem;
+	}
+
 	.logout-form {
-		margin-top: 0.5rem;
+		margin: 0;
+	}
+
+	.admin-form {
+		margin: 0;
+	}
+
+	.logout-button,
+	.admin-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		min-height: 2.75rem;
+		border-radius: 0.5rem;
+		padding: 0.9rem 1.2rem;
+		font: inherit;
+		font-weight: 700;
+		cursor: pointer;
+		text-decoration: none;
 	}
 
 	.logout-button {
-		width: 100%;
 		background: #2a2f38;
 		color: #e5e7eb;
 		border: 1px solid #3b4250;
@@ -176,6 +195,16 @@
 
 	.logout-button:hover {
 		background: #343a45;
+	}
+
+	.admin-button {
+		background: transparent;
+		color: #f5b76a;
+		border: 1px solid #f5b76a;
+	}
+
+	.admin-button:hover {
+		background: rgba(245, 183, 106, 0.12);
 	}
 
 	.status-card span,

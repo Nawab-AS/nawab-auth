@@ -1,57 +1,20 @@
-<script lang="ts">
-	import type { ActionData, PageData } from './$types';
-
-	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
-</script>
-
 <svelte:head>
-	<title>Admin - Nawab Auth</title>
+	<title>Admin Dashboard - Nawab Auth</title>
 </svelte:head>
 
 <main class="page">
 	<section class="panel">
-		<p class="eyebrow">Admin dashboard</p>
-		<h1>Rotate keys, enforce budgets, and review audit history.</h1>
+		<p class="eyebrow">Admin dashboard template</p>
+		<h1>Admin controls will live here.</h1>
 		<p class="lede">
-			This will be the control surface for user and admin key rolls, immediate key deletion, and
-			credit governance.
+			This page is currently a placeholder for admin-only workflows, reporting, and governance
+			controls.
 		</p>
 
-		<div class="grid">
-			<div>
-				<span>Preferred name</span>
-				<strong>{data.preferredName ?? data.user!.name}</strong>
-			</div>
-			<div>
-				<span>Admin access</span>
-				<strong>{data.isAdmin ? 'Enabled' : 'Locked'}</strong>
-			</div>
-			<div>
-				<span>Canonical user ID</span>
-				<strong>{data.userId}</strong>
-			</div>
-			<div>
-				<span>API key</span>
-				<strong>{data.activeKeyId ?? 'Not linked'}</strong>
-			</div>
-			<div>
-				<span>Remaining credits</span>
-				<strong>${(data.allowedUsageUsd - data.usageCarriedForwardUsd - data.currentUsageUsd).toFixed(2)}</strong>
-			</div>
+		<div class="callout">
+			<p>Use the dashboard to return to your user view while this template is being built out.</p>
+			<a href="/dashboard" class="primary-link">Back to dashboard</a>
 		</div>
-
-		<form method="POST" action="?/rollKey" class="roll-form">
-			<input type="hidden" name="role" value="admin" />
-			<button type="submit" class="primary">Roll key now</button>
-		</form>
-
-		{#if data.rolled}
-			<p class="notice">Admin roll request {data.rollRequestId} queued in the scaffold.</p>
-		{/if}
-
-		{#if form}
-			<p class="notice">{form.message}</p>
-		{/if}
 	</section>
 </main>
 
@@ -74,6 +37,7 @@
 
 	.panel {
 		width: 100%;
+		max-width: 760px;
 		padding: 2rem;
 		border-radius: 0.75rem;
 		border: 1px solid #2b3038;
@@ -90,55 +54,42 @@
 	h1 {
 		margin: 0;
 		font-size: clamp(1.9rem, 5vw, 2.6rem);
-		line-height: 1;
+		line-height: 1.1;
 	}
 
-	.lede,
-	.notice {
+	.lede {
 		color: #cbd5e1;
 		line-height: 1.6;
+		max-width: 58ch;
 	}
 
-	.grid {
+	.callout {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 1rem;
-		margin: 1.5rem 0;
-	}
-
-	.grid div {
-		padding: 1rem;
+		margin-top: 1.5rem;
+		padding: 1.25rem;
 		border-radius: 0.6rem;
 		background: #15181e;
 		border: 1px solid #2b3038;
 	}
 
-	.grid span {
-		display: block;
-		font-size: 0.85rem;
-		color: #9ca3af;
+	.callout p {
+		margin: 0;
+		color: #cbd5e1;
+		line-height: 1.6;
 	}
 
-	.grid strong {
-		display: block;
-		margin-top: 0.35rem;
-		font-size: 1.05rem;
-	}
-
-	.primary {
-		border: 0;
+	.primary-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: fit-content;
 		border-radius: 0.5rem;
 		padding: 0.9rem 1.2rem;
 		font: inherit;
 		font-weight: 700;
-		cursor: pointer;
+		text-decoration: none;
 		background: #e5e7eb;
 		color: #111827;
-	}
-
-	@media (max-width: 720px) {
-		.grid {
-			grid-template-columns: 1fr;
-		}
 	}
 </style>
