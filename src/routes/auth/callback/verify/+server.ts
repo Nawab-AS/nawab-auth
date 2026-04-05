@@ -1,7 +1,9 @@
 import { json } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
-import { setSupabaseAccessCookie } from '$lib/server/supabase';
+import { BANNED_ACCOUNT_MESSAGE, isUserBanned } from '$lib/server/account';
+import { getSupabaseUserFromAccessToken, setSupabaseAccessCookie } from '$lib/server/supabase';
+import { normalizeReturnToPath, readFormOrJsonBody } from '$lib/server/http';
 import type { RequestHandler } from '@sveltejs/kit';
 
 /**
@@ -9,9 +11,11 @@ import type { RequestHandler } from '@sveltejs/kit';
  */
 export const POST: RequestHandler = async ({ request, cookies, url }) => {
 	try {
-		const body = await request.json();
-		const { accessToken, otpToken, otpType } = body;
-		const returnTo = url.searchParams.get('return_to') ?? '/dashboard';
+		const body = await readFormOrJsonBody(request);
+		const accessToken = typeof body.accessToken === 'string' ? body.accessToken.trim() : '';
+		const otpToken = typeof body.otpToken === 'string' ? body.otpToken.trim() : '';
+		const otpType = typeof body.otpType === 'string' ? body.otpType.trim() : '';
+		const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'));
 
 		if (!accessToken && !otpToken) {
 			return json(
@@ -56,9 +60,33 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 				);
 			}
 
+			if (!data.user || !data.session?.access_token) {
+				return json(
+					{ error: 'Failed to resolve user for OTP verification.' },
+					{ status: 400 }
+				);
+			}
+
+			if (await isUserBanned(data.user.id, data.session.access_token)) {
+				return json({ error: BANNED_ACCOUNT_MESSAGE }, { status: 403 });
+			}
+
 			token = data.session?.access_token ?? null;
 		} else if (accessToken) {
 			// Handle OAuth tokens - validate they're legitimate
+			const user = await getSupabaseUserFromAccessToken(accessToken);
+
+			if (!user) {
+				return json(
+					{ error: 'Failed to resolve authenticated user.' },
+					{ status: 400 }
+				);
+			}
+
+			if (await isUserBanned(user.id, accessToken)) {
+				return json({ error: BANNED_ACCOUNT_MESSAGE }, { status: 403 });
+			}
+
 			token = accessToken;
 		}
 
@@ -74,7 +102,7 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 
 		return json({
 			success: true,
-			redirectTo: returnTo.startsWith('/') ? returnTo : '/dashboard'
+			redirectTo: returnTo
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Authentication verification failed';

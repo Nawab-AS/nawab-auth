@@ -41,6 +41,10 @@ function createSupabaseClient() {
 	});
 }
 
+export function createSupabaseAnonClient() {
+	return createSupabaseClient();
+}
+
 export function createSupabaseAuthedClient(accessToken: string) {
 	return createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
 		auth: {

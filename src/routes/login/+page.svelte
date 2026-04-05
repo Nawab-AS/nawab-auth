@@ -4,7 +4,12 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { ActionData, PageData } from './$types';
 
-	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
+	type LoginPageData = PageData & {
+		error?: string | null;
+		authError?: string | null;
+	};
+
+	let { data, form }: { data: LoginPageData; form: ActionData | undefined } = $props();
 
 	let loading = $state(false);
 	let otpSent = $state(false);
@@ -27,6 +32,7 @@
 		cooldownEndsAt > now ? Math.ceil((cooldownEndsAt - now) / 1000) : 0
 	);
 	let sendOtpDisabled = $derived(sendingOtp || cooldownSecondsRemaining > 0);
+	let pageError = $derived(data.error ?? data.authError ?? null);
 
 	$effect(() => {
 		if (form?.otpSent) {
@@ -76,7 +82,7 @@
 	function getProviderLogoPath(provider: string): string | null {
 		const logoMap: Record<string, string> = {
 			github: '/logos/github.svg',
-			google: '/logos/gmail.svg',
+			google: '/logos/google.svg',
 			discord: '/logos/discord.svg'
 		};
 		return logoMap[provider] || null;
@@ -107,6 +113,10 @@
 	<section class="panel">
 		<p class="eyebrow">Authentication</p>
 		<h1>Sign In</h1>
+
+		{#if pageError}
+			<p class="error-message">{pageError}</p>
+		{/if}
 
 		{#if oauthError}
 			<p class="error-message">{oauthError}</p>
@@ -196,8 +206,10 @@
 								bind:value={otpCode}
 							/>
 						</label>
-						{#if form?.message && !form?.otpSent}
+						{#if form?.message && form?.token}
 							<p class="error-message">{form.message}</p>
+						{:else if form?.message}
+							<p class="success-message">{form.message}</p>
 						{:else}
 							<p class="success-message">Enter the 6-digit code from your email to finish sign in.</p>
 						{/if}

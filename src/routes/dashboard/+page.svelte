@@ -6,6 +6,18 @@
 	const remainingCredits = $derived(
 		data.allowedUsageUsd - data.usageCarriedForwardUsd - data.currentUsageUsd
 	);
+
+	const apiKeyState = $derived.by(() => {
+		if (!data.apiKeyAssigned) {
+			return 'Not assigned';
+		}
+
+		if (data.apiKeyDisabled) {
+			return 'Disabled';
+		}
+
+		return 'Assigned';
+	});
 </script>
 
 <svelte:head>
@@ -52,16 +64,12 @@
 			<strong>${data.allowedUsageUsd.toFixed(2)}</strong>
 		</article>
 		<article>
-			<span>Usage carried forward</span>
-			<strong>${data.usageCarriedForwardUsd.toFixed(2)}</strong>
-		</article>
-		<article>
-			<span>Current key usage</span>
-			<strong>${data.currentUsageUsd.toFixed(2)}</strong>
-		</article>
-		<article>
 			<span>Remaining</span>
 			<strong>${remainingCredits.toFixed(2)}</strong>
+		</article>
+		<article>
+			<span>API key</span>
+			<strong>{apiKeyState}</strong>
 		</article>
 	</section>
 
@@ -69,34 +77,46 @@
 		<div class="panel">
 			<h2>Roll key</h2>
 			<p>
-				Users and admins can both request a roll. The implementation currently returns a roll
-				request marker and will later delete the old OpenRouter key immediately, then create a new
-				one while preserving history in the ledger.
+				Users and admins can roll or disable keys from this panel. A missing API key is displayed as
+				<strong>Not assigned</strong>.
 			</p>
 
 			<form method="POST" action="?/rollKey">
-				<input type="hidden" name="role" value={data.isAdmin ? 'admin' : 'user'} />
-				<button type="submit" class="primary">Request roll</button>
+				<button type="submit" class="primary">Roll API key</button>
+			</form>
+
+			<form method="POST" action="?/disableKey">
+				<input type="hidden" name="disabled" value={data.apiKeyDisabled ? 'false' : 'true'} />
+				<button type="submit" class="secondary">
+					{data.apiKeyDisabled ? 'Enable API key' : 'Disable API key'}
+				</button>
 			</form>
 
 			{#if data.rolled}
-				<p class="notice">Roll request {data.rollRequestId} queued in the scaffold.</p>
+				<p class="notice">API key rolled.</p>
 			{/if}
 
 			{#if form?.rollMessage}
 				<p class="notice">{form.rollMessage}</p>
 			{/if}
+
+			{#if form?.keyMessage}
+				<p class="notice">{form.keyMessage}</p>
+			{/if}
 		</div>
 
 		<div class="panel">
-			<h2>Provider links</h2>
+			<h2>Linked providers</h2>
+			<br/>
 			{#if data.providers.length === 0}
 				<p class="notice">No OAuth providers are currently enabled in Supabase settings.</p>
 			{:else}
-				<ul class="provider-list" aria-label="Provider links">
+				<ul class="provider-grid" aria-label="Linked providers">
 					{#each data.providers as provider (provider.provider)}
-						<li class="provider-row">
-							<span class="provider-name">{provider.displayName}</span>
+						<li class="provider-item">
+							<div class="provider-meta">
+								<span class="provider-name">{provider.displayName}</span>
+							</div>
 							{#if provider.isLinked}
 								<form method="POST" action="?/revokeProvider">
 									<input type="hidden" name="provider" value={provider.provider} />
@@ -242,7 +262,7 @@
 
 	.metrics {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 1rem;
 		margin: 1.25rem 0;
 	}
@@ -272,25 +292,32 @@
 		color: #111827;
 	}
 
-	.provider-list {
+	.secondary {
+		margin-top: 0.7rem;
+		background: transparent;
+		color: #f5b76a;
+		border: 1px solid #f5b76a;
+	}
+
+	.provider-grid {
 		list-style: none;
 		margin: 0;
 		padding: 0;
-		border: 1px solid #2b3038;
-		border-radius: 0.6rem;
+		border-top: 1px solid #2b3038;
 	}
 
-	.provider-row {
+	.provider-item {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.75rem;
-		padding: 0.75rem 0.85rem;
+		gap: 1rem;
+		padding: 0.85rem 0;
 		border-bottom: 1px solid #2b3038;
 	}
 
-	.provider-row:last-child {
-		border-bottom: 0;
+	.provider-meta {
+		display: grid;
+		gap: 0.2rem;
 	}
 
 	.provider-name {
@@ -312,6 +339,18 @@
 		background: #2a2f38;
 		color: #e5e7eb;
 		border: 1px solid #3b4250;
+	}
+
+	@media (max-width: 520px) {
+		.provider-item {
+			align-items: flex-start;
+			flex-direction: column;
+		}
+
+		.provider-item form,
+		.provider-button {
+			width: 100%;
+		}
 	}
 
 	.notice {

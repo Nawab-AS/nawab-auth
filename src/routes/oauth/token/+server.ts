@@ -5,13 +5,10 @@ import {
 	issueTokenSet,
 	verifyRefreshToken
 } from '$lib/server/oidc';
+import { readFormOrJsonBody } from '$lib/server/http';
 
 export const POST = async ({ request }) => {
-	const contentType = request.headers.get('content-type') ?? '';
-	const isForm = contentType.includes('application/x-www-form-urlencoded');
-	const body = isForm
-		? Object.fromEntries((await request.formData()).entries())
-		: ((await request.json()) as Record<string, unknown>);
+	const body = await readFormOrJsonBody(request);
 
 	const grantType = String(body.grant_type ?? '').trim();
 	const clientId = String(body.client_id ?? '').trim() || getLibreChatClientId();

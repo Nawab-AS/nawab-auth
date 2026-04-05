@@ -1,4 +1,4 @@
-import { redirect } from '@sveltejs/kit';
+import { isRedirect, redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import {
 	getAccessTokenFromCookies,
@@ -7,7 +7,8 @@ import {
 	getSupabaseUrl,
 	setSupabaseAccessCookie
 } from '$lib/server/supabase';
-import { isUserOnboarded } from '$lib/server/account';
+import { BANNED_ACCOUNT_MESSAGE, isUserBanned, isUserOnboarded } from '$lib/server/account';
+import { normalizeReturnToPath } from '$lib/server/http';
 import type { RequestHandler } from '@sveltejs/kit';
 
 /**
@@ -44,6 +45,14 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 			}
 
 			if (data.session?.access_token) {
+				if (!data.user) {
+					throw new Error('Failed to resolve user for OTP verification');
+				}
+
+				if (await isUserBanned(data.user.id, data.session.access_token)) {
+					throw new Error(BANNED_ACCOUNT_MESSAGE);
+				}
+
 				setSupabaseAccessCookie(cookies, data.session.access_token);
 			}
 		} else {
@@ -54,6 +63,15 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 
 			if (error || !data.session?.access_token) {
 				throw new Error('OAuth authentication failed - no session established');
+			}
+
+			const user = await getSupabaseUserFromAccessToken(data.session.access_token);
+			if (!user) {
+				throw new Error('Failed to resolve authenticated user');
+			}
+
+			if (await isUserBanned(user.id, data.session.access_token)) {
+				throw new Error(BANNED_ACCOUNT_MESSAGE);
 			}
 
 			setSupabaseAccessCookie(cookies, data.session.access_token);
@@ -68,14 +86,18 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 			}
 		}
 
-		const returnTo = url.searchParams.get('return_to') ?? '/dashboard';
-		throw redirect(303, returnTo.startsWith('/') ? returnTo : '/dashboard');
+		const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'));
+		throw redirect(303, returnTo);
 	} catch (err) {
+		if (isRedirect(err)) {
+			throw err;
+		}
+
 		const message = err instanceof Error ? err.message : 'Authentication failed';
-		const returnTo = url.searchParams.get('return_to') ?? '/login';
+		const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'), '/login');
 		throw redirect(
 			303,
-			`${returnTo.startsWith('/') ? returnTo : '/login'}?error=${encodeURIComponent(message)}`
+			`${returnTo}?error=${encodeURIComponent(message)}`
 		);
 	}
 };

@@ -5,6 +5,10 @@
 	let loading = $state(true);
 
 	onMount(async () => {
+		const redirectToLogin = (message: string) => {
+			window.location.href = `/login?error=${encodeURIComponent(message)}`;
+		};
+
 		try {
 			// Extract the fragment data that Supabase sends back
 			const hash = window.location.hash.substring(1);
@@ -44,15 +48,15 @@
 
 			if (!response.ok) {
 				const data = await response.json();
-				throw new Error(data.error || 'Authentication failed');
+				redirectToLogin(data.error || 'Authentication failed');
+				return;
 			}
 
 			// Get the redirect URL from the response
 			const result = await response.json();
 			window.location.href = result.redirectTo || '/dashboard';
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Authentication failed';
-			loading = false;
+			redirectToLogin(err instanceof Error ? err.message : 'Authentication failed');
 		}
 	});
 </script>

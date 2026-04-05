@@ -1,5 +1,3 @@
-import { env } from '$env/dynamic/private';
-
 export interface OpenRouterUsage {
 	totalUsageUsd: number;
 }

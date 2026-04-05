@@ -1,55 +1,17 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { buildDashboardSnapshot, createRollRequestId } from '$lib/server/oidc';
-import {
-	createSupabaseAuthedClient,
-	getAccessTokenFromCookies
-} from '$lib/server/supabase';
+import { buildDashboardSnapshot } from '$lib/server/oidc';
+import { createSupabaseAuthedClient, getAccessTokenFromCookies } from '$lib/server/supabase';
+import { getOAuthSettings, getProviderDisplayName } from '$lib/server/oauth-settings';
+import { getLinkedProviders, revokeLinkedProvider } from '$lib/server/providers';
+import { rollApiKey, setApiKeyDisabled } from '$lib/server/account';
+import { parseBoolean } from '$lib/server/http';
 import type { Provider } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
-
-interface OAuthSettings {
-	providers: string[];
-}
 
 interface DashboardProvider {
 	provider: string;
 	displayName: string;
 	isLinked: boolean;
-}
-
-function getProviderDisplayName(provider: string): string {
-	const names: Record<string, string> = {
-		github: 'GitHub',
-		google: 'Google',
-		discord: 'Discord',
-		apple: 'Apple',
-		facebook: 'Facebook',
-		linkedin: 'LinkedIn',
-		azure: 'Microsoft',
-		gitlab: 'GitLab',
-		bitbucket: 'Bitbucket',
-		twitch: 'Twitch',
-		twitter: 'X',
-		slack: 'Slack',
-		spotify: 'Spotify'
-	};
-
-	return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
-}
-
-async function getEnabledProviders(fetchFn: typeof fetch) {
-	let settings: OAuthSettings = { providers: [] };
-
-	try {
-		const response = await fetchFn('/api/oauth-settings');
-		if (response.ok) {
-			settings = await response.json();
-		}
-	} catch (err) {
-		console.error('Failed to load OAuth providers for dashboard:', err);
-	}
-
-	return settings.providers;
 }
 
 export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
@@ -58,21 +20,17 @@ export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
 	const user = locals.user;
 	const accessToken = getAccessTokenFromCookies(cookies);
 	const snapshot = await buildDashboardSnapshot(user!, accessToken);
-	const enabledProviders = await getEnabledProviders(fetch);
+	const oauthSettings = await getOAuthSettings(fetch);
+	const enabledProviders = oauthSettings.providers;
 
-	const supabase = accessToken ? createSupabaseAuthedClient(accessToken) : null;
 	let linkedProviderNames = new Set<string>();
 
-	if (supabase) {
-		const { data: identityData, error: identityError } = await supabase.auth.getUserIdentities();
-		if (identityError) {
-			console.error('Failed to load linked identities for dashboard:', identityError);
-		} else {
-			linkedProviderNames = new Set(
-				(identityData?.identities ?? [])
-					.map((identity) => identity.provider)
-					.filter((provider): provider is string => Boolean(provider))
-			);
+	if (accessToken) {
+		try {
+			const identities = await getLinkedProviders(accessToken);
+			linkedProviderNames = new Set(identities.map((identity) => identity.provider));
+		} catch (error) {
+			console.error('Failed to load linked identities for dashboard:', error);
 		}
 	}
 
@@ -88,22 +46,53 @@ export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
 		user,
 		...snapshot,
 		providers,
-		rolled: url.searchParams.get('rolled') === '1',
-		rollRequestId: url.searchParams.get('rollRequestId') ?? null
+		rolled: url.searchParams.get('rolled') === '1'
 	};
 };
 
 export const actions: Actions = {
-	rollKey: async ({ request }) => {
-		const formData = await request.formData();
-		const role = String(formData.get('role') ?? 'user');
-
-		if (role !== 'user' && role !== 'admin') {
-			return fail(400, { rollMessage: 'Invalid role for key roll request.' });
+	rollKey: async ({ locals, cookies }) => {
+		const user = locals.user;
+		if (!user) {
+			throw redirect(303, '/login?return_to=%2Fdashboard');
 		}
 
-		const rollRequestId = createRollRequestId();
-		throw redirect(303, `/dashboard?rolled=1&rollRequestId=${encodeURIComponent(rollRequestId)}`);
+		const accessToken = getAccessTokenFromCookies(cookies);
+		if (!accessToken) {
+			throw redirect(303, '/login?return_to=%2Fdashboard');
+		}
+
+		try {
+			await rollApiKey(user.id, accessToken);
+			throw redirect(303, '/dashboard?rolled=1');
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to roll API key.';
+			return fail(400, { rollMessage: message });
+		}
+	},
+	disableKey: async ({ locals, cookies, request }) => {
+		const user = locals.user;
+		if (!user) {
+			throw redirect(303, '/login?return_to=%2Fdashboard');
+		}
+
+		const accessToken = getAccessTokenFromCookies(cookies);
+		if (!accessToken) {
+			throw redirect(303, '/login?return_to=%2Fdashboard');
+		}
+
+		const formData = await request.formData();
+		const disabled = parseBoolean(String(formData.get('disabled') ?? 'true'), true);
+
+		try {
+			await setApiKeyDisabled(user.id, accessToken, disabled);
+			return {
+				keyMessage: disabled ? 'API key disabled.' : 'API key enabled.'
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to update API key state.';
+			return fail(400, { keyMessage: message });
+		}
 	},
 	linkProvider: async ({ request, cookies, url }) => {
 		const formData = await request.formData();
@@ -118,8 +107,8 @@ export const actions: Actions = {
 			throw redirect(303, '/login?return_to=%2Fdashboard');
 		}
 
-		const supabase = createSupabaseAuthedClient(accessToken);
 		const redirectTo = new URL('/auth/callback?return_to=%2Fdashboard', url.origin).toString();
+		const supabase = createSupabaseAuthedClient(accessToken);
 		const { data, error } = await supabase.auth.linkIdentity({
 			provider: provider as Provider,
 			options: {
@@ -149,30 +138,22 @@ export const actions: Actions = {
 			throw redirect(303, '/login?return_to=%2Fdashboard');
 		}
 
-		const supabase = createSupabaseAuthedClient(accessToken);
-		const { data: identityData, error: identitiesError } = await supabase.auth.getUserIdentities();
+		try {
+			const revoked = await revokeLinkedProvider(accessToken, provider);
+			if (!revoked) {
+				return fail(400, {
+					providerMessage: `${getProviderDisplayName(provider)} is not currently linked.`
+				});
+			}
 
-		if (identitiesError) {
-			return fail(400, { providerMessage: identitiesError.message });
-		}
-
-		const matchingIdentity = (identityData?.identities ?? []).find(
-			(identity) => identity.provider === provider
-		);
-
-		if (!matchingIdentity) {
+			return {
+				providerMessage: `${getProviderDisplayName(provider)} was revoked successfully.`
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to revoke provider.';
 			return fail(400, {
-				providerMessage: `${getProviderDisplayName(provider)} is not currently linked.`
+				providerMessage: message
 			});
 		}
-
-		const { error } = await supabase.auth.unlinkIdentity(matchingIdentity);
-		if (error) {
-			return fail(400, { providerMessage: error.message });
-		}
-
-		return {
-			providerMessage: `${getProviderDisplayName(provider)} was revoked successfully.`
-		};
 	}
 };

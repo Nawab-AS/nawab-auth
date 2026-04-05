@@ -7,13 +7,9 @@ import {
 	getSupabaseUrl,
 	setSupabaseAccessCookie
 } from '$lib/server/supabase';
-import { isUserOnboarded } from '$lib/server/account';
-
-interface OAuthSettings {
-	providers: string[];
-	emailEnabled: boolean;
-	signupDisabled: boolean;
-}
+import { BANNED_ACCOUNT_MESSAGE, isUserBanned, isUserOnboarded } from '$lib/server/account';
+import { getOAuthSettings } from '$lib/server/oauth-settings';
+import { normalizeReturnToPath } from '$lib/server/http';
 
 const OTP_COOLDOWN_MS = 45_000;
 const otpCooldownByEmail = new Map<string, number>();
@@ -26,28 +22,16 @@ export const load: PageServerLoad = async ({ url, fetch, locals }) => {
 		throw redirect(303, '/dashboard');
 	}
 
-	const returnTo = url.searchParams.get('return_to') ?? '/dashboard';
+	const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'));
+	const authError = url.searchParams.get('error');
 	
-	let oauthSettings: OAuthSettings = {
-		providers: [],
-		emailEnabled: false,
-		signupDisabled: false
-	};
-
-	// Fetch available OAuth providers from Supabase
-	try {
-		const response = await fetch('/api/oauth-settings');
-		if (response.ok) {
-			oauthSettings = await response.json();
-		}
-	} catch (err) {
-		console.error('Failed to load OAuth settings:', err);
-	}
+	const oauthSettings = await getOAuthSettings(fetch);
 
 	const supabaseUrl = getSupabaseUrl();
 
 	return {
 		returnTo,
+		authError,
 		oauthSettings,
 		supabaseUrl
 	};
@@ -57,7 +41,7 @@ export const actions: Actions = {
 	sendOtp: async ({ request, fetch }) => {
 		const formData = await request.formData();
 		const email = String(formData.get('email') ?? '').trim();
-		const returnTo = String(formData.get('return_to') ?? '/dashboard').trim() || '/dashboard';
+		const returnTo = normalizeReturnToPath(String(formData.get('return_to') ?? '/dashboard'));
 
 		if (!email) {
 			return fail(400, { message: 'Email is required.', returnTo, email });
@@ -112,7 +96,7 @@ export const actions: Actions = {
 		const formData = await request.formData();
 		const email = String(formData.get('email') ?? '').trim();
 		const token = String(formData.get('token') ?? '').trim();
-		const returnTo = String(formData.get('return_to') ?? '/dashboard').trim() || '/dashboard';
+		const returnTo = normalizeReturnToPath(String(formData.get('return_to') ?? '/dashboard'));
 
 		if (!email) {
 			return fail(400, { message: 'Email is required.', returnTo, email, token });
@@ -149,6 +133,15 @@ export const actions: Actions = {
 			if (!data.user) {
 				return fail(400, {
 					message: 'Failed to resolve user for OTP verification.',
+					returnTo,
+					email,
+					token
+				});
+			}
+
+			if (await isUserBanned(data.user.id, data.session.access_token)) {
+				return fail(403, {
+					message: BANNED_ACCOUNT_MESSAGE,
 					returnTo,
 					email,
 					token

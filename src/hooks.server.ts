@@ -1,6 +1,10 @@
-import { redirect, type Handle } from '@sveltejs/kit';
-import { isUserOnboarded } from '$lib/server/account';
-import { getAccessTokenFromCookies, getSupabaseUserFromCookies } from '$lib/server/supabase';
+import { isRedirect, redirect, type Handle } from '@sveltejs/kit';
+import { BANNED_ACCOUNT_MESSAGE, isUserBanned, isUserOnboarded } from '$lib/server/account';
+import {
+	clearSupabaseAccessCookie,
+	getAccessTokenFromCookies,
+	getSupabaseUserFromCookies
+} from '$lib/server/supabase';
 
 /**
  * Routes that don't require authentication
@@ -20,6 +24,24 @@ function isPublicRoute(pathname: string): boolean {
 export const handle: Handle = async ({ event, resolve }) => {
 	const user = await getSupabaseUserFromCookies(event.cookies);
 	event.locals.user = user ?? undefined;
+
+	if (user) {
+		const accessToken = getAccessTokenFromCookies(event.cookies);
+		if (accessToken) {
+			try {
+				if (await isUserBanned(user.id, accessToken)) {
+					clearSupabaseAccessCookie(event.cookies);
+					throw redirect(303, `/login?error=${encodeURIComponent(BANNED_ACCOUNT_MESSAGE)}`);
+				}
+			} catch (err) {
+				if (isRedirect(err)) {
+					throw err;
+				}
+
+				console.error('Failed to check banned status:', err);
+			}
+		}
+	}
 
 	// Check if the route is public
 	if (isPublicRoute(event.url.pathname)) {
