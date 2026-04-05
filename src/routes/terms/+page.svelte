@@ -5,15 +5,26 @@
 <main class="shell">
 	<section class="panel">
 		<p class="eyebrow">Terms of Service</p>
-		<h1>Use Policy</h1>
+		<h1>Acceptable Use Policy</h1>
 		<p>
-			By using this service, you agree not to use it for illegal activity, including misuse that
-			violates applicable law or institutional policy, and not to use it for academic dishonesty.
+			By accessing or using Nawab Auth, you agree to comply with all applicable laws,
+			regulations, and institutional policies. You are solely responsible for your conduct and for
+			ensuring that your use of this service is lawful, ethical, and authorized.
 		</p>
 		<p>
-			You also acknowledge that use is at your own risk, and you release LibreChat, Nawab Auth,
-			and the creators from responsibility for adverse outcomes resulting from misuse or reliance
-			on this service.
+			You may not use this service to engage in unlawful conduct, fraud, impersonation, abuse,
+			security violations, or any activity intended to deceive, exploit, or harm others.
+		</p>
+		<p>
+			Academic dishonesty is strictly prohibited. This includes, without limitation, unauthorized
+			assistance on examinations or assignments, plagiarism, falsification of academic work,
+			misrepresentation of authorship, or any use that violates academic integrity standards.
+		</p>
+		<p>
+			Use of Nawab Auth is provided on an "as is" and "as available" basis. By using this service,
+			you acknowledge and accept all associated risks, and you agree that Nawab Auth and its
+			creators are not liable for losses, damages, disciplinary outcomes, or other adverse
+			consequences arising from misuse of the service.
 		</p>
 	</section>
 </main>
@@ -27,7 +38,9 @@
 	}
 
 	.shell {
-		min-height: 100vh;
+		min-height: 100dvh;
+		width: 100%;
+		box-sizing: border-box;
 		display: grid;
 		place-items: center;
 		padding: 2rem;
@@ -35,6 +48,7 @@
 
 	.panel {
 		width: min(760px, 100%);
+		box-sizing: border-box;
 		padding: 2rem;
 		border-radius: 0.75rem;
 		border: 1px solid #2b3038;

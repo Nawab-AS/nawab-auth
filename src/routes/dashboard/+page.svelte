@@ -83,18 +83,39 @@
 				<p class="notice">Roll request {data.rollRequestId} queued in the scaffold.</p>
 			{/if}
 
-			{#if form}
-				<p class="notice">{form.message}</p>
+			{#if form?.rollMessage}
+				<p class="notice">{form.rollMessage}</p>
 			{/if}
 		</div>
 
 		<div class="panel">
 			<h2>Provider links</h2>
-			<ul>
-				{#each ['email OTP', 'Google', 'GitHub', 'Discord'] as provider (provider)}
-					<li>{provider}</li>
-				{/each}
-			</ul>
+			{#if data.providers.length === 0}
+				<p class="notice">No OAuth providers are currently enabled in Supabase settings.</p>
+			{:else}
+				<ul class="provider-list" aria-label="Provider links">
+					{#each data.providers as provider (provider.provider)}
+						<li class="provider-row">
+							<span class="provider-name">{provider.displayName}</span>
+							{#if provider.isLinked}
+								<form method="POST" action="?/revokeProvider">
+									<input type="hidden" name="provider" value={provider.provider} />
+									<button type="submit" class="provider-button revoke">Revoke</button>
+								</form>
+							{:else}
+								<form method="POST" action="?/linkProvider">
+									<input type="hidden" name="provider" value={provider.provider} />
+									<button type="submit" class="provider-button link">Link</button>
+								</form>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			{#if form?.providerMessage}
+				<p class="notice">{form.providerMessage}</p>
+			{/if}
 		</div>
 	</section>
 </main>
@@ -251,13 +272,46 @@
 		color: #111827;
 	}
 
-	ul {
-		padding-left: 1.2rem;
+	.provider-list {
+		list-style: none;
 		margin: 0;
+		padding: 0;
+		border: 1px solid #2b3038;
+		border-radius: 0.6rem;
 	}
 
-	li + li {
-		margin-top: 0.5rem;
+	.provider-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.75rem 0.85rem;
+		border-bottom: 1px solid #2b3038;
+	}
+
+	.provider-row:last-child {
+		border-bottom: 0;
+	}
+
+	.provider-name {
+		font-weight: 600;
+	}
+
+	.provider-button {
+		padding: 0.55rem 0.8rem;
+		font-size: 0.9rem;
+		min-width: 5.25rem;
+	}
+
+	.provider-button.link {
+		background: #e5e7eb;
+		color: #111827;
+	}
+
+	.provider-button.revoke {
+		background: #2a2f38;
+		color: #e5e7eb;
+		border: 1px solid #3b4250;
 	}
 
 	.notice {
