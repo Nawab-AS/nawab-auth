@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import {
 	consumeAuthorizationCode,
-	getLibreChatClientId,
+	getOidcClientId,
+	getOidcClientSecret,
 	issueTokenSet,
 	verifyRefreshToken
 } from '$lib/server/oidc';
@@ -9,13 +10,47 @@ import { readFormOrJsonBody } from '$lib/server/http';
 
 export const POST = async ({ request }) => {
 	const body = await readFormOrJsonBody(request);
+	const basicAuthorization = request.headers.get('authorization') ?? '';
+
+	let basicClientId = '';
+	let basicClientSecret = '';
+
+	if (basicAuthorization.toLowerCase().startsWith('basic ')) {
+		try {
+			const encoded = basicAuthorization.slice(6).trim();
+			const decoded = atob(encoded);
+			const separatorIndex = decoded.indexOf(':');
+
+			if (separatorIndex >= 0) {
+				basicClientId = decoded.slice(0, separatorIndex).trim();
+				basicClientSecret = decoded.slice(separatorIndex + 1).trim();
+			}
+		} catch {
+			return json(
+				{ error: 'invalid_client', error_description: 'Malformed basic authorization credentials.' },
+				{ status: 401, headers: { 'cache-control': 'no-store' } }
+			);
+		}
+	}
 
 	const grantType = String(body.grant_type ?? '').trim();
-	const clientId = String(body.client_id ?? '').trim() || getLibreChatClientId();
+	const expectedClientId = getOidcClientId();
+	const expectedClientSecret = getOidcClientSecret();
+	const bodyClientId = String(body.client_id ?? '').trim();
+	const bodyClientSecret = String(body.client_secret ?? '').trim();
+	const clientId = basicClientId || bodyClientId || expectedClientId;
+	const providedClientSecret = basicClientSecret || bodyClientSecret;
 
-	if (clientId !== getLibreChatClientId()) {
+	if (clientId !== expectedClientId) {
 		return json(
 			{ error: 'invalid_client', error_description: 'Unknown client_id.' },
+			{ status: 401, headers: { 'cache-control': 'no-store' } }
+		);
+	}
+
+	if (providedClientSecret !== expectedClientSecret) {
+		return json(
+			{ error: 'invalid_client', error_description: 'Invalid client authentication.' },
 			{ status: 401, headers: { 'cache-control': 'no-store' } }
 		);
 	}
@@ -25,9 +60,9 @@ export const POST = async ({ request }) => {
 		const redirectUri = String(body.redirect_uri ?? '').trim();
 		const codeVerifier = String(body.code_verifier ?? '').trim();
 
-		if (!code || !redirectUri || !codeVerifier) {
+		if (!code || !redirectUri) {
 			return json(
-				{ error: 'invalid_request', error_description: 'code, redirect_uri, and code_verifier are required.' },
+				{ error: 'invalid_request', error_description: 'code and redirect_uri are required.' },
 				{ status: 400, headers: { 'cache-control': 'no-store' } }
 			);
 		}
@@ -37,7 +72,7 @@ export const POST = async ({ request }) => {
 				code,
 				clientId,
 				redirectUri,
-				codeVerifier
+				codeVerifier: codeVerifier || undefined
 			});
 
 			const tokenSet = await issueTokenSet({ claims, clientId });

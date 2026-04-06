@@ -5,35 +5,48 @@
 	let loading = $state(true);
 
 	onMount(async () => {
-		const redirectToLogin = (message: string) => {
-			window.location.href = `/login?error=${encodeURIComponent(message)}`;
+		const redirectToLogin = (message: string, returnTo?: string) => {
+			const loginUrl = new URL('/login', window.location.origin);
+			loginUrl.searchParams.set('error', message);
+			if (returnTo && returnTo.startsWith('/')) {
+				loginUrl.searchParams.set('redirect_to', returnTo);
+			}
+			window.location.href = loginUrl.toString();
 		};
 
 		try {
-			// Extract the fragment data that Supabase sends back
-			const hash = window.location.hash.substring(1);
-			if (!hash) {
-				throw new Error('No authentication data received');
-			}
+			const urlParams = new URLSearchParams(window.location.search);
+			const returnTo = urlParams.get('redirect_to') ?? urlParams.get('return_to') ?? '/dashboard';
+			const email = urlParams.get('email');
+			const token = urlParams.get('token');
+			const tokenType = urlParams.get('type');
 
-			// Parse the fragment
+			// Supabase OAuth usually sends tokens in the fragment.
+			// OTP verification uses query params instead.
+			const hash = window.location.hash.substring(1);
 			const params = new URLSearchParams(hash);
 			const accessToken = params.get('access_token');
 			const refreshToken = params.get('refresh_token');
 			const expiresIn = params.get('expires_in');
 			const type = params.get('type');
+			const oauthError = params.get('error_description') ?? params.get('error');
 
-			// Also check URL query params for OTP verification
-			const urlParams = new URLSearchParams(window.location.search);
-			const token = urlParams.get('token');
-			const tokenType = urlParams.get('type');
+			if (oauthError) {
+				throw new Error(oauthError);
+			}
 
 			if (!accessToken && !token) {
 				throw new Error('No authentication token found');
 			}
 
 			// Send the tokens to the server for validation and cookie setting
-			const response = await fetch('/auth/callback/verify', {
+			const verifyUrl = new URL('/auth/callback/verify', window.location.origin);
+			verifyUrl.searchParams.set('redirect_to', returnTo);
+			if (email) {
+				verifyUrl.searchParams.set('email', email);
+			}
+
+			const response = await fetch(verifyUrl.toString(), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -48,7 +61,7 @@
 
 			if (!response.ok) {
 				const data = await response.json();
-				redirectToLogin(data.error || 'Authentication failed');
+				redirectToLogin(data.error || 'Authentication failed', returnTo);
 				return;
 			}
 
@@ -56,7 +69,13 @@
 			const result = await response.json();
 			window.location.href = result.redirectTo || '/dashboard';
 		} catch (err) {
-			redirectToLogin(err instanceof Error ? err.message : 'Authentication failed');
+			const params = new URLSearchParams(window.location.search);
+			redirectToLogin(
+				err instanceof Error ? err.message : 'Authentication failed',
+				params.get('redirect_to') ?? params.get('return_to') ?? undefined
+			);
+		} finally {
+			loading = false;
 		}
 	});
 </script>

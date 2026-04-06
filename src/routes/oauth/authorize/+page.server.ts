@@ -3,7 +3,7 @@ import {
 	appendQueryParams,
 	buildConsentSummary,
 	createAuthorizationCode,
-	getLibreChatClientId,
+	getOidcClientId,
 	isAllowedRedirectUri,
 	parseScopes,
 	type SupportedScope
@@ -20,7 +20,7 @@ export const load = async ({ url, cookies }) => {
 	const codeChallenge = url.searchParams.get('code_challenge')?.trim() ?? '';
 	const codeChallengeMethod = url.searchParams.get('code_challenge_method')?.trim() ?? '';
 
-	if (clientId !== getLibreChatClientId()) {
+	if (clientId !== getOidcClientId()) {
 		throw error(400, 'Unknown client_id');
 	}
 
@@ -36,13 +36,9 @@ export const load = async ({ url, cookies }) => {
 		throw error(400, 'PKCE must use S256');
 	}
 
-	if (!codeChallenge) {
-		throw error(400, 'PKCE code_challenge is required');
-	}
-
 	const user = await getSupabaseUserFromCookies(cookies);
 	if (!user) {
-		throw redirect(303, `/login?return_to=${encodeURIComponent(url.toString())}`);
+		throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
 	}
 
 	return {
@@ -68,10 +64,10 @@ export const actions = {
 		const formData = await request.formData();
 		const redirectUri = String(formData.get('redirect_uri') ?? url.searchParams.get('redirect_uri') ?? '').trim();
 		const state = String(formData.get('state') ?? url.searchParams.get('state') ?? '').trim();
-		const clientId = url.searchParams.get('client_id')?.trim() ?? '';
-		const scopes = parseScopes(url.searchParams.get('scope'));
-		const codeChallenge = url.searchParams.get('code_challenge')?.trim() ?? '';
-		const nonce = url.searchParams.get('nonce')?.trim() ?? undefined;
+		const clientId = String(formData.get('client_id') ?? url.searchParams.get('client_id') ?? '').trim();
+		const scopes = parseScopes(String(formData.get('scope') ?? url.searchParams.get('scope') ?? 'openid'));
+		const codeChallenge = String(formData.get('code_challenge') ?? url.searchParams.get('code_challenge') ?? '').trim();
+		const nonce = String(formData.get('nonce') ?? url.searchParams.get('nonce') ?? '').trim() || undefined;
 		const user = await getSupabaseUserFromCookies(cookies);
 
 		if (!isAllowedRedirectUri(redirectUri)) {
@@ -82,16 +78,12 @@ export const actions = {
 			throw error(400, 'Missing state');
 		}
 
-		if (clientId !== getLibreChatClientId()) {
+		if (clientId !== getOidcClientId()) {
 			throw error(400, 'Unknown client_id');
 		}
 
-		if (!codeChallenge) {
-			throw error(400, 'Missing code_challenge');
-		}
-
 		if (!user) {
-			throw redirect(303, `/login?return_to=${encodeURIComponent(url.toString())}`);
+			throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
 		}
 
 		const code = await createAuthorizationCode({

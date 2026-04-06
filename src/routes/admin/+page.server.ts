@@ -19,12 +19,12 @@ import type { Actions } from './$types';
 async function requireAdminAccess(locals: App.Locals, cookies: import('@sveltejs/kit').Cookies) {
 	const user = locals.user;
 	if (!user) {
-		throw redirect(303, '/dashboard');
+		throw redirect(303, '/login?redirect_to=%2Fadmin');
 	}
 
 	const accessToken = getAccessTokenFromCookies(cookies);
 	if (!accessToken) {
-		throw redirect(303, '/login?return_to=%2Fadmin');
+		throw redirect(303, '/login?redirect_to=%2Fadmin');
 	}
 
 	const canAccessAdmin = await isUserAdmin(user.id, accessToken, Boolean(user.isAdmin));

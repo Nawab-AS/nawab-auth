@@ -10,12 +10,19 @@
 
 <main class="shell">
 	<section class="panel">
-		<p class="eyebrow">Authorization request</p>
-		<h1>Let LibreChat access your account</h1>
-		<p class="lede">
-			This is the consent step for the edge OIDC provider. Supabase remains the source of truth
-			for identity, MFA, and linked providers.
-		</p>
+		<p class="eyebrow">Login with OIDC</p>
+		<h1>Approve account sharing</h1>
+		<p class="lede">This consent screen appears every time an app requests Login with OIDC.</p>
+
+		<div class="share-card" aria-live="polite">
+			<p class="share-title">Shared with this app</p>
+			<ul class="claim-list">
+				{#each data.consent.sharedClaims as claim (claim)}
+					<li>{claim}</li>
+				{/each}
+			</ul>
+			<p class="share-note">Only your name and email are shared. Password and OTP secrets are never shared.</p>
+		</div>
 
 		<div class="meta-grid">
 			<div>
@@ -31,12 +38,13 @@
 				<strong>{data.scopes.join(' ')}</strong>
 			</div>
 			<div>
-				<span>PKCE</span>
+				<span>Security</span>
 				<strong>{data.codeChallenge ? 'Required' : 'Missing'}</strong>
 			</div>
 		</div>
 
-		<ul class="scope-list">
+		<p class="scope-label">Requested scopes</p>
+		<ul class="scope-list" aria-label="Requested scopes">
 			{#each data.scopes as scope (scope)}
 				<li>{scope}</li>
 			{/each}
@@ -44,12 +52,17 @@
 
 		<div class="actions">
 			<form method="POST" action="?/approve">
+				<input type="hidden" name="client_id" value={data.clientId} />
+				<input type="hidden" name="scope" value={data.scopes.join(' ')} />
+				<input type="hidden" name="nonce" value={data.nonce} />
+				<input type="hidden" name="code_challenge" value={data.codeChallenge} />
 				<input type="hidden" name="redirect_uri" value={data.redirectUri} />
 				<input type="hidden" name="state" value={data.state} />
 				<button type="submit" class="primary">Approve</button>
 			</form>
 
 			<form method="POST" action="?/deny">
+				<input type="hidden" name="client_id" value={data.clientId} />
 				<input type="hidden" name="redirect_uri" value={data.redirectUri} />
 				<input type="hidden" name="state" value={data.state} />
 				<button type="submit" class="secondary">Deny</button>
@@ -100,9 +113,47 @@
 	}
 
 	.lede {
-		max-width: 58ch;
+		max-width: 56ch;
 		color: #cbd5e1;
 		line-height: 1.6;
+	}
+
+	.share-card {
+		margin-top: 1rem;
+		margin-bottom: 1rem;
+		padding: 1rem;
+		border-radius: 0.6rem;
+		border: 1px solid #334155;
+		background: #101822;
+	}
+
+	.share-title {
+		margin: 0 0 0.65rem;
+		font-size: 0.95rem;
+		font-weight: 700;
+		color: #bfdbfe;
+	}
+
+	.claim-list {
+		display: flex;
+		gap: 0.65rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.claim-list li {
+		padding: 0.45rem 0.8rem;
+		border-radius: 999px;
+		background: #0b2239;
+		border: 1px solid #1d4f7a;
+		font-weight: 600;
+	}
+
+	.share-note {
+		margin: 0.8rem 0 0;
+		color: #dbeafe;
+		font-size: 0.92rem;
 	}
 
 	.meta-grid {
@@ -110,6 +161,14 @@
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 1rem;
 		margin: 1.5rem 0;
+	}
+
+	.scope-label {
+		margin: 0 0 0.6rem;
+		font-size: 0.85rem;
+		text-transform: uppercase;
+		letter-spacing: 0.12em;
+		color: #9ca3af;
 	}
 
 	.meta-grid div {

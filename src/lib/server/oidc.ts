@@ -10,13 +10,14 @@ type SigningKey = CryptoKey | Uint8Array;
 export const supportedScopes = ['openid', 'profile', 'email', 'offline_access'] as const;
 
 export type SupportedScope = (typeof supportedScopes)[number];
-export type OidcClientId = 'librechat';
+export type OidcClientId = string;
 export type KeyRollRole = 'user' | 'admin';
 
 export interface ConsentSummary {
 	clientId: OidcClientId;
 	redirectUri: string;
 	scopes: SupportedScope[];
+	sharedClaims: Array<'name' | 'email'>;
 	hasPkce: boolean;
 	hasNonce: boolean;
 }
@@ -52,8 +53,8 @@ interface AuthorizationCodePayload {
 	redirect_uri: string;
 	scope: string;
 	nonce?: string;
-	code_challenge: string;
-	code_challenge_method: 'S256';
+	code_challenge?: string;
+	code_challenge_method?: 'S256';
 }
 
 interface TokenClaims {
@@ -97,22 +98,58 @@ function toAbsoluteUrl(base: string, path: string) {
 	return `${trimTrailingSlash(base)}${path}`;
 }
 
-export function getIssuer() {
-	return trimTrailingSlash(env.AUTH_ISSUER_URL ?? 'http://127.0.0.1:4173');
+function getRequiredEnv(name: keyof typeof env) {
+	const value = env[name]?.trim();
+	if (!value) {
+		throw new Error(`Missing required environment variable: ${name}`);
+	}
+
+	return value;
 }
 
-export function getLibreChatClientId(): OidcClientId {
-	return (env.LIBRECHAT_CLIENT_ID?.trim() as OidcClientId | undefined) ?? 'librechat';
+export function getIssuer() {
+	return trimTrailingSlash(getRequiredEnv('OIDC_ISSUER_URL'));
+}
+
+export function getOidcClientId(): OidcClientId {
+	return getRequiredEnv('OIDC_CLIENT_ID');
+}
+
+export function getOidcClientSecret() {
+	return getRequiredEnv('OIDC_CLIENT_SECRET');
 }
 
 export function getAllowedRedirectUris() {
-	const rawValues = env.LIBRECHAT_REDIRECT_URIS?.split(',') ?? ['http://localhost:3080/api/auth/callback/oidc'];
+	const rawValues = getRequiredEnv('OIDC_REDIRECT_URIS').split(',');
 
-	return rawValues.map((value) => trimTrailingSlash(value)).filter(Boolean);
+	const parsed = rawValues
+		.map((value) => trimTrailingSlash(value))
+		.filter(Boolean)
+		.filter((value) => toRedirectBaseUri(value) !== null);
+
+	if (parsed.length === 0) {
+		throw new Error('OIDC_REDIRECT_URIS must include at least one valid absolute URI.');
+	}
+
+	return parsed;
+}
+
+function toRedirectBaseUri(value: string) {
+	try {
+		const parsed = new URL(value.trim());
+		return trimTrailingSlash(`${parsed.origin}${parsed.pathname}`);
+	} catch {
+		return null;
+	}
 }
 
 export function isAllowedRedirectUri(redirectUri: string) {
-	return getAllowedRedirectUris().includes(trimTrailingSlash(redirectUri));
+	const requestedBaseUri = toRedirectBaseUri(redirectUri);
+	if (!requestedBaseUri) {
+		return false;
+	}
+
+	return getAllowedRedirectUris().some((allowedRedirectUri) => toRedirectBaseUri(allowedRedirectUri) === requestedBaseUri);
 }
 
 export function parseScopes(scope: string | null) {
@@ -126,6 +163,7 @@ export function parseScopes(scope: string | null) {
 
 export function buildDiscoveryDocument() {
 	const issuer = getIssuer();
+	const tokenAuthMethods = getOidcClientSecret() ? ['client_secret_basic', 'client_secret_post'] : ['none'];
 
 	return {
 		issuer,
@@ -138,7 +176,7 @@ export function buildDiscoveryDocument() {
 		id_token_signing_alg_values_supported: [OIDC_ALG],
 		scopes_supported: [...supportedScopes],
 		grant_types_supported: ['authorization_code', 'refresh_token'],
-		token_endpoint_auth_methods_supported: ['none'],
+		token_endpoint_auth_methods_supported: tokenAuthMethods,
 		claims_supported: ['sub', 'email', 'email_verified', 'name'],
 		code_challenge_methods_supported: ['S256']
 	};
@@ -223,6 +261,7 @@ export function buildConsentSummary(params: {
 		clientId: params.clientId,
 		redirectUri: params.redirectUri,
 		scopes: params.scopes,
+		sharedClaims: ['name', 'email'],
 		hasPkce: Boolean(params.codeChallenge),
 		hasNonce: Boolean(params.nonce)
 	};
@@ -252,7 +291,7 @@ export async function createAuthorizationCode(input: {
 	redirectUri: string;
 	scopes: SupportedScope[];
 	nonce?: string;
-	codeChallenge: string;
+	codeChallenge?: string;
 }) {
 	const signing = await getSigningContext();
 	const issuer = getIssuer();
@@ -268,7 +307,7 @@ export async function createAuthorizationCode(input: {
 		scope: input.scopes.join(' '),
 		nonce: input.nonce,
 		code_challenge: input.codeChallenge,
-		code_challenge_method: 'S256'
+		code_challenge_method: input.codeChallenge ? 'S256' : undefined
 	} as JWTPayload)
 		.setProtectedHeader({ alg: OIDC_ALG, kid: signing.kid })
 		.setIssuedAt()
@@ -285,7 +324,7 @@ export async function consumeAuthorizationCode(input: {
 	code: string;
 	clientId: string;
 	redirectUri: string;
-	codeVerifier: string;
+	codeVerifier?: string;
 }) {
 	const signing = await getSigningContext();
 	const issuer = getIssuer();
@@ -314,13 +353,19 @@ export async function consumeAuthorizationCode(input: {
 		throw new Error('Authorization code already used.');
 	}
 
-	if (payload.code_challenge_method !== 'S256') {
-		throw new Error('Only S256 PKCE is supported.');
-	}
+	if (payload.code_challenge) {
+		if (payload.code_challenge_method !== 'S256') {
+			throw new Error('Only S256 PKCE is supported.');
+		}
 
-	const computed = await s256(input.codeVerifier);
-	if (computed !== payload.code_challenge) {
-		throw new Error('Invalid code_verifier for PKCE.');
+		if (!input.codeVerifier) {
+			throw new Error('Missing code_verifier for PKCE-protected authorization code.');
+		}
+
+		const computed = await s256(input.codeVerifier);
+		if (computed !== payload.code_challenge) {
+			throw new Error('Invalid code_verifier for PKCE.');
+		}
 	}
 
 	oneTimeCodeUse.add(jti);
@@ -458,7 +503,7 @@ export async function revokeToken(token: string) {
 	const verified = await jwtVerify(token, signing.publicKey, {
 		algorithms: [OIDC_ALG],
 		issuer: getIssuer(),
-		audience: [getLibreChatClientId(), `${getIssuer()}/oauth/userinfo`]
+		audience: [getOidcClientId(), `${getIssuer()}/oauth/userinfo`]
 	});
 
 	if (verified.payload.jti) {

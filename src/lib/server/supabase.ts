@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
+import { dev } from '$app/environment';
 import type { Cookies } from '@sveltejs/kit';
 
 export interface SupabaseSessionUser {
@@ -127,7 +128,7 @@ export function setSupabaseAccessCookie(cookies: Cookies, accessToken: string) {
 		path: '/',
 		httpOnly: true,
 		sameSite: 'lax',
-		secure: true,
+		secure: !dev,
 		maxAge: 60 * 60
 	});
 }

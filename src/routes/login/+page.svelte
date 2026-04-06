@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { ActionData, PageData } from './$types';
 
@@ -16,9 +16,34 @@
 	let emailAddress = $state('');
 	let otpCode = $state('');
 	let oauthError = $state<string | null>(null);
+	let returnToFromLocation = $state('');
 	let sendingOtp = $state(false);
 	let cooldownEndsAt = $state(0);
 	let now = $state(Date.now());
+
+	function isGenericReturnToPath(value: string | null | undefined) {
+		return value === '/' || value === '/dashboard';
+	}
+
+	onMount(() => {
+		const parsed = new URL(window.location.href);
+		const fromUrl = parsed.searchParams.get('redirect_to') ?? parsed.searchParams.get('return_to');
+		const resolvedReturnTo =
+			fromUrl && fromUrl.startsWith('/') && !isGenericReturnToPath(fromUrl) ? fromUrl : data.returnTo;
+		returnToFromLocation = resolvedReturnTo;
+
+		const hashParams = new URLSearchParams(parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash);
+		const hasOAuthHashPayload =
+			Boolean(hashParams.get('access_token')) ||
+			Boolean(hashParams.get('error')) ||
+			Boolean(hashParams.get('error_description'));
+
+		if (hasOAuthHashPayload) {
+			const callbackUrl = new URL('/auth/callback', window.location.origin);
+			callbackUrl.searchParams.set('redirect_to', resolvedReturnTo);
+			window.location.replace(`${callbackUrl.toString()}${parsed.hash}`);
+		}
+	});
 
 	const tick = setInterval(() => {
 		now = Date.now();
@@ -31,26 +56,34 @@
 	let cooldownSecondsRemaining = $derived(
 		cooldownEndsAt > now ? Math.ceil((cooldownEndsAt - now) / 1000) : 0
 	);
+	let resolvedReturnTo = $derived(returnToFromLocation || data.returnTo);
+	let sendOtpAction = $derived(`?/sendOtp`);
+	let verifyOtpAction = $derived(`?/verifyOtp`);
 	let sendOtpDisabled = $derived(sendingOtp || cooldownSecondsRemaining > 0);
 	let pageError = $derived(data.error ?? data.authError ?? null);
 
-	$effect(() => {
-		if (form?.otpSent) {
-			otpSent = true;
-			emailAddress = form.email ?? emailAddress;
-			otpCode = '';
-		}
-
-		if (form?.cooldownRemaining && form.cooldownRemaining > 0) {
-			cooldownEndsAt = Date.now() + form.cooldownRemaining * 1000;
-		}
-	});
-
 	const enhanceSendOtp: SubmitFunction = () => {
 		sendingOtp = true;
-		return async ({ update }) => {
+		return async ({ update, result }) => {
 			await update();
 			sendingOtp = false;
+
+			if (result.type === 'success') {
+				otpSent = true;
+				if (result.data?.email && typeof result.data.email === 'string') {
+					emailAddress = result.data.email;
+				}
+				otpCode = '';
+			}
+
+			if (
+				(result.type === 'success' || result.type === 'failure') &&
+				result.data?.cooldownRemaining &&
+				typeof result.data.cooldownRemaining === 'number' &&
+				result.data.cooldownRemaining > 0
+			) {
+				cooldownEndsAt = Date.now() + result.data.cooldownRemaining * 1000;
+			}
 		};
 	};
 
@@ -90,16 +123,17 @@
 
 	async function handleOAuthLogin(provider: string) {
 		try {
+			loading = true;
 			oauthError = null;
-			const redirectUri = `${new URL(window.location.href).origin}/auth/callback`;
-			const returnTo = encodeURIComponent(data.returnTo);
+			const redirectUri = new URL('/auth/callback', window.location.origin);
+			redirectUri.searchParams.set('redirect_to', resolvedReturnTo);
 			const oauthUrl = new URL(`${data.supabaseUrl}/auth/v1/authorize`);
 			oauthUrl.searchParams.set('provider', provider);
-			oauthUrl.searchParams.set('redirect_to', redirectUri);
-			oauthUrl.searchParams.set('return_to', returnTo);
+			oauthUrl.searchParams.set('redirect_to', redirectUri.toString());
 
 			window.location.href = oauthUrl.toString();
 		} catch (err) {
+			loading = false;
 			oauthError = err instanceof Error ? err.message : 'OAuth login failed';
 		}
 	}
@@ -153,8 +187,8 @@
 		<!-- Email OTP Authentication -->
 		{#if data.oauthSettings.emailEnabled}
 			<div class="email-section">
-				<form method="POST" action="?/sendOtp" use:enhance={enhanceSendOtp} class="form-stack">
-					<input type="hidden" name="return_to" value={data.returnTo} />
+				<form method="POST" action={sendOtpAction} use:enhance={enhanceSendOtp} class="form-stack">
+					<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
 					{#if !otpSent}
 						<label>
 							<span>Email</span>
@@ -184,15 +218,15 @@
 						{:else if cooldownSecondsRemaining > 0}
 							Resend in {cooldownSecondsRemaining}s
 						{:else}
-							{otpSent ? 'Resend OTP' : 'Send code'}
+							{otpSent || form?.otpSent ? 'Resend OTP' : 'Send code'}
 						{/if}
 					</button>
 				</form>
 
-				{#if otpSent}
-					<form method="POST" action="?/verifyOtp" use:enhance={enhanceVerifyOtp} class="form-stack verify-form">
-						<input type="hidden" name="return_to" value={data.returnTo} />
-						<input type="hidden" name="email" value={emailAddress} />
+				{#if otpSent || form?.otpSent}
+					<form method="POST" action={verifyOtpAction} use:enhance={enhanceVerifyOtp} class="form-stack verify-form">
+						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
+						<input type="hidden" name="email" value={emailAddress || form?.email || ''} />
 						<label>
 							<span>Verification code</span>
 							<input

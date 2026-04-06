@@ -19,6 +19,12 @@ export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
 	// But we can assert it here for type safety if needed
 	const user = locals.user;
 	const accessToken = getAccessTokenFromCookies(cookies);
+	const authReturnTo = cookies.get('auth_return_to')?.trim() ?? null;
+
+	if (accessToken && authReturnTo?.startsWith('/oauth/authorize')) {
+		throw redirect(303, authReturnTo);
+	}
+
 	const snapshot = await buildDashboardSnapshot(user!, accessToken);
 	const oauthSettings = await getOAuthSettings(fetch);
 	const enabledProviders = oauthSettings.providers;
@@ -54,12 +60,12 @@ export const actions: Actions = {
 	rollKey: async ({ locals, cookies }) => {
 		const user = locals.user;
 		if (!user) {
-			throw redirect(303, '/login?return_to=%2Fdashboard');
+			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
 		const accessToken = getAccessTokenFromCookies(cookies);
 		if (!accessToken) {
-			throw redirect(303, '/login?return_to=%2Fdashboard');
+			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
 		try {
@@ -73,12 +79,12 @@ export const actions: Actions = {
 	disableKey: async ({ locals, cookies, request }) => {
 		const user = locals.user;
 		if (!user) {
-			throw redirect(303, '/login?return_to=%2Fdashboard');
+			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
 		const accessToken = getAccessTokenFromCookies(cookies);
 		if (!accessToken) {
-			throw redirect(303, '/login?return_to=%2Fdashboard');
+			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
 		const formData = await request.formData();
@@ -104,10 +110,10 @@ export const actions: Actions = {
 
 		const accessToken = getAccessTokenFromCookies(cookies);
 		if (!accessToken) {
-			throw redirect(303, '/login?return_to=%2Fdashboard');
+			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
-		const redirectTo = new URL('/auth/callback?return_to=%2Fdashboard', url.origin).toString();
+		const redirectTo = new URL('/auth/callback?redirect_to=%2Fdashboard', url.origin).toString();
 		const supabase = createSupabaseAuthedClient(accessToken);
 		const { data, error } = await supabase.auth.linkIdentity({
 			provider: provider as Provider,
@@ -135,7 +141,7 @@ export const actions: Actions = {
 
 		const accessToken = getAccessTokenFromCookies(cookies);
 		if (!accessToken) {
-			throw redirect(303, '/login?return_to=%2Fdashboard');
+			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
 		try {

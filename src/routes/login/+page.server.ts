@@ -10,42 +10,82 @@ import {
 import { BANNED_ACCOUNT_MESSAGE, isUserBanned, isUserOnboarded } from '$lib/server/account';
 import { getOAuthSettings } from '$lib/server/oauth-settings';
 import { normalizeReturnToPath } from '$lib/server/http';
+import { getIssuer } from '$lib/server/oidc';
 
 const OTP_COOLDOWN_MS = 45_000;
 const otpCooldownByEmail = new Map<string, number>();
+const AUTH_RETURN_TO_COOKIE = 'auth_return_to';
+const AUTH_RETURN_TO_MAX_AGE_SECONDS = 10 * 60;
 
-export const load: PageServerLoad = async ({ url, fetch, locals }) => {
-	const user = locals.user;
+function isGenericReturnTo(value: string) {
+	return value === '/' || value === '/dashboard';
+}
 
-	// Redirect authenticated users to dashboard
-	if (user) {
-		throw redirect(303, '/dashboard');
+function getEffectiveReturnTo(primary: string | null | undefined, cookieValue: string | null | undefined) {
+	const normalizedPrimary = normalizeReturnToPath(primary);
+	const normalizedCookie = cookieValue ? normalizeReturnToPath(cookieValue) : null;
+
+	if (normalizedCookie?.startsWith('/oauth/authorize') && isGenericReturnTo(normalizedPrimary)) {
+		return normalizedCookie;
 	}
 
-	const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'));
+	return normalizedPrimary;
+}
+
+function getCookieReturnTo(valueToStore: string, existingCookieValue: string | null | undefined) {
+	const normalizedExisting = existingCookieValue ? normalizeReturnToPath(existingCookieValue) : null;
+
+	if (normalizedExisting?.startsWith('/oauth/authorize') && isGenericReturnTo(valueToStore)) {
+		return normalizedExisting;
+	}
+
+	return valueToStore;
+}
+
+export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
+	const currentCookieReturnTo = cookies.get(AUTH_RETURN_TO_COOKIE);
+	const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
+	const returnTo = getEffectiveReturnTo(requestedReturnTo, currentCookieReturnTo);
+	const user = locals.user;
+	const cookieReturnTo = getCookieReturnTo(returnTo, currentCookieReturnTo);
+
+	cookies.set(AUTH_RETURN_TO_COOKIE, cookieReturnTo, {
+		path: '/',
+		httpOnly: true,
+		sameSite: 'lax',
+		secure: false,
+		maxAge: AUTH_RETURN_TO_MAX_AGE_SECONDS
+	});
+
+	// Redirect authenticated users to the requested target, not always dashboard.
+	if (user) {
+		throw redirect(303, returnTo);
+	}
+
 	const authError = url.searchParams.get('error');
-	
+
 	const oauthSettings = await getOAuthSettings(fetch);
 
 	const supabaseUrl = getSupabaseUrl();
+	const authOrigin = new URL(getIssuer()).origin;
 
 	return {
 		returnTo,
 		authError,
 		oauthSettings,
-		supabaseUrl
+		supabaseUrl,
+		authOrigin
 	};
 };
 
 export const actions: Actions = {
-	sendOtp: async ({ request, fetch }) => {
+	sendOtp: async ({ request, fetch, cookies, url }) => {
 		const formData = await request.formData();
 		const email = String(formData.get('email') ?? '').trim();
-		const returnTo = normalizeReturnToPath(String(formData.get('return_to') ?? '/dashboard'));
-
-		if (!email) {
-			return fail(400, { message: 'Email is required.', returnTo, email });
-		}
+		const returnTo = getEffectiveReturnTo(
+				String(formData.get('redirect_to') ?? formData.get('return_to') ?? url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to') ?? '/dashboard'),
+			cookies.get(AUTH_RETURN_TO_COOKIE)
+		);
 
 		const normalizedEmail = email.toLowerCase();
 		const now = Date.now();
@@ -92,11 +132,14 @@ export const actions: Actions = {
 			return fail(500, { message, returnTo, email });
 		}
 	},
-	verifyOtp: async ({ request, cookies }) => {
+	verifyOtp: async ({ request, cookies, url }) => {
 		const formData = await request.formData();
 		const email = String(formData.get('email') ?? '').trim();
 		const token = String(formData.get('token') ?? '').trim();
-		const returnTo = normalizeReturnToPath(String(formData.get('return_to') ?? '/dashboard'));
+		const returnTo = getEffectiveReturnTo(
+				String(formData.get('redirect_to') ?? formData.get('return_to') ?? url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to') ?? '/dashboard'),
+			cookies.get(AUTH_RETURN_TO_COOKIE)
+		);
 
 		if (!email) {
 			return fail(400, { message: 'Email is required.', returnTo, email, token });
@@ -155,6 +198,8 @@ export const actions: Actions = {
 			if (!onboarded) {
 				throw redirect(303, '/onboarding');
 			}
+
+			cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
 
 			throw redirect(303, returnTo);
 		} catch (err) {

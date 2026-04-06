@@ -62,9 +62,10 @@ Required for local development:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
-- `AUTH_ISSUER_URL`
-- `LIBRECHAT_CLIENT_ID`
-- `LIBRECHAT_REDIRECT_URIS`
+- `OIDC_ISSUER_URL`
+- `OIDC_CLIENT_ID`
+- `OIDC_CLIENT_SECRET`
+- `OIDC_REDIRECT_URIS`
 
 Recommended for stable OIDC tokens across restarts:
 
@@ -86,10 +87,12 @@ If `OIDC_PRIVATE_JWK` is missing, the app generates an ephemeral signing key at 
 
 1. Client redirects user to `/oauth/authorize` with PKCE parameters.
 2. If user is not authenticated, user is redirected to `/login`.
-3. After consent approval, server returns authorization `code` to `redirect_uri`.
-4. Client exchanges `code` at `/oauth/token` with `code_verifier`.
-5. Server returns `access_token`, `id_token`, and optionally `refresh_token` (when `offline_access` is granted).
-6. Client calls `/oauth/userinfo` with bearer access token.
+3. Consent screen is always shown for each `Login with OIDC` request.
+4. Consent screen explicitly limits shared profile data to `name` and `email`.
+5. After consent approval, server returns authorization `code` to `redirect_uri`.
+6. Client exchanges `code` at `/oauth/token` with `code_verifier`.
+7. Server returns `access_token`, `id_token`, and optionally `refresh_token` (when `offline_access` is granted).
+8. Client calls `/oauth/userinfo` with bearer access token.
 
 ## Auth Notes
 

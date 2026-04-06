@@ -6,6 +6,23 @@ import { getSupabaseUserFromAccessToken, setSupabaseAccessCookie } from '$lib/se
 import { normalizeReturnToPath, readFormOrJsonBody } from '$lib/server/http';
 import type { RequestHandler } from '@sveltejs/kit';
 
+const AUTH_RETURN_TO_COOKIE = 'auth_return_to';
+
+function isGenericReturnTo(value: string) {
+	return value === '/' || value === '/dashboard';
+}
+
+function getEffectiveReturnTo(primary: string | null | undefined, cookieValue: string | null | undefined) {
+	const normalizedPrimary = normalizeReturnToPath(primary);
+	const normalizedCookie = cookieValue ? normalizeReturnToPath(cookieValue) : null;
+
+	if (normalizedCookie?.startsWith('/oauth/authorize') && isGenericReturnTo(normalizedPrimary)) {
+		return normalizedCookie;
+	}
+
+	return normalizedPrimary;
+}
+
 /**
  * Verify OAuth callback tokens and set authentication cookies
  */
@@ -15,7 +32,10 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 		const accessToken = typeof body.accessToken === 'string' ? body.accessToken.trim() : '';
 		const otpToken = typeof body.otpToken === 'string' ? body.otpToken.trim() : '';
 		const otpType = typeof body.otpType === 'string' ? body.otpType.trim() : '';
-		const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'));
+		const returnTo = getEffectiveReturnTo(
+			url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to'),
+			cookies.get(AUTH_RETURN_TO_COOKIE)
+		);
 
 		if (!accessToken && !otpToken) {
 			return json(
@@ -99,6 +119,7 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 
 		// Set the access token cookie
 		setSupabaseAccessCookie(cookies, token);
+		cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
 
 		return json({
 			success: true,

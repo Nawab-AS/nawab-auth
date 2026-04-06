@@ -10,7 +10,7 @@ import type { SupabaseSessionUser } from '$lib/server/supabase';
  */
 export function requireAuth(user: SupabaseSessionUser | undefined, currentPath: string): asserts user is SupabaseSessionUser {
 	if (!user) {
-		throw redirect(303, `/login?returnTo=${encodeURIComponent(currentPath)}`);
+		throw redirect(303, `/login?redirect_to=${encodeURIComponent(currentPath)}`);
 	}
 }
 

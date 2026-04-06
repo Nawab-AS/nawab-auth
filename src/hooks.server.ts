@@ -11,6 +11,7 @@ import {
  */
 const PUBLIC_ROUTES = [
 	'/login',
+	'/oauth/',
 	'/auth/',
 	'/terms',
 	'/api/',
@@ -50,7 +51,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// If no user and route is protected, redirect to login
 	if (!user) {
-		throw redirect(303, `/login?return_to=${encodeURIComponent(event.url.pathname)}`);
+		const returnTo = `${event.url.pathname}${event.url.search}`;
+		throw redirect(303, `/login?redirect_to=${encodeURIComponent(returnTo)}`);
 	}
 
 	if (event.url.pathname === '/') {
