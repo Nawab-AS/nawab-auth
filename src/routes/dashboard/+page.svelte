@@ -27,12 +27,9 @@
 <main class="page">
 	<section class="hero">
 		<div>
-			<p class="eyebrow">User dashboard</p>
-			<h1>Track access and credits from one place.</h1>
-			<p class="lede">
-				Supabase owns authentication, MFA, and linked identities. This dashboard will eventually
-				tie your canonical user ID to the OpenRouter key lifecycle and usage ledger.
-			</p>
+			<p class="eyebrow">Dashboard</p>
+			<h1>Your account at a glance</h1>
+			<p class="lede">Manage your key, linked providers, and available usage in one place.</p>
 		</div>
 
 		<div class="status-card">
@@ -75,11 +72,8 @@
 
 	<section class="panel-grid">
 		<div class="panel">
-			<h2>Roll key</h2>
-			<p>
-				Users and admins can roll or disable keys from this panel. A missing API key is displayed as
-				<strong>Not assigned</strong>.
-			</p>
+			<h2>API key</h2>
+			<p>Create a new key anytime, or disable your current key without deleting it.</p>
 
 			<form method="POST" action="?/rollKey">
 				<button type="submit" class="primary">Roll API key</button>
@@ -107,9 +101,8 @@
 
 		<div class="panel">
 			<h2>Linked providers</h2>
-			<br/>
 			{#if data.providers.length === 0}
-				<p class="notice">No OAuth providers are currently enabled in Supabase settings.</p>
+				<p class="notice">No providers are available right now.</p>
 			{:else}
 				<ul class="provider-grid" aria-label="Linked providers">
 					{#each data.providers as provider (provider.provider)}

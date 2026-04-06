@@ -10,43 +10,24 @@
 
 <main class="shell">
 	<section class="panel">
-		<p class="eyebrow">Login with OIDC</p>
-		<h1>Approve account sharing</h1>
-		<p class="lede">This consent screen appears every time an app requests Login with OIDC.</p>
+		<p class="eyebrow">Permission request</p>
+		<h1>Share your account details?</h1>
+		<p class="lede">{data.clientId} is requesting access to continue sign-in.</p>
 
 		<div class="share-card" aria-live="polite">
-			<p class="share-title">Shared with this app</p>
+			<p class="share-title">This app can see</p>
 			<ul class="claim-list">
 				{#each data.consent.sharedClaims as claim (claim)}
 					<li>{claim}</li>
 				{/each}
 			</ul>
-			<p class="share-note">Only your name and email are shared. Password and OTP secrets are never shared.</p>
+			<p class="share-note">Only these details are shared. Your password and OTP are never shared.</p>
 		</div>
 
-		<div class="meta-grid">
-			<div>
-				<span>Client</span>
-				<strong>{data.clientId}</strong>
-			</div>
-			<div>
-				<span>Redirect URI</span>
-				<strong>{data.redirectUri}</strong>
-			</div>
-			<div>
-				<span>Scopes</span>
-				<strong>{data.scopes.join(' ')}</strong>
-			</div>
-			<div>
-				<span>Security</span>
-				<strong>{data.codeChallenge ? 'Required' : 'Missing'}</strong>
-			</div>
-		</div>
-
-		<p class="scope-label">Requested scopes</p>
-		<ul class="scope-list" aria-label="Requested scopes">
+		<p class="scope-label">Requested permissions</p>
+		<ul class="scope-list" aria-label="Requested permissions">
 			{#each data.scopes as scope (scope)}
-				<li>{scope}</li>
+				<li>{scope === 'openid' ? 'Sign you in' : scope.replace('_', ' ')}</li>
 			{/each}
 		</ul>
 
@@ -120,7 +101,7 @@
 
 	.share-card {
 		margin-top: 1rem;
-		margin-bottom: 1rem;
+		margin-bottom: 1.2rem;
 		padding: 1rem;
 		border-radius: 0.6rem;
 		border: 1px solid #334155;
@@ -156,13 +137,6 @@
 		font-size: 0.92rem;
 	}
 
-	.meta-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 1rem;
-		margin: 1.5rem 0;
-	}
-
 	.scope-label {
 		margin: 0 0 0.6rem;
 		font-size: 0.85rem;
@@ -171,25 +145,10 @@
 		color: #9ca3af;
 	}
 
-	.meta-grid div {
-		padding: 1rem;
-		border-radius: 0.6rem;
-		background: #15181e;
-		border: 1px solid #2b3038;
-	}
-
-	.meta-grid span,
 	.notice {
 		display: block;
 		color: #9ca3af;
 		font-size: 0.9rem;
-	}
-
-	.meta-grid strong {
-		display: block;
-		margin-top: 0.35rem;
-		font-size: 1rem;
-		word-break: break-word;
 	}
 
 	.scope-list {
@@ -238,9 +197,4 @@
 		margin-top: 1rem;
 	}
 
-	@media (max-width: 700px) {
-		.meta-grid {
-			grid-template-columns: 1fr;
-		}
-	}
 </style>
