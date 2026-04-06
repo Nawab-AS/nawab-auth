@@ -43,6 +43,13 @@ export async function POST({ request }) {
 			);
 		}
 
+		if (normalizedEmail.endsWith('@hdsb.ca')) {
+			return json(
+				{ error: 'This email domain is not allowed' },
+				{ status: 400 }
+			);
+		}
+
 		const now = Date.now();
 		const throttleKey = getOtpThrottleKey(request, normalizedEmail);
 		const nextAllowedAt = otpRequestCooldown.get(throttleKey) ?? 0;

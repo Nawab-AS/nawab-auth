@@ -8,6 +8,28 @@ import {
 } from '$lib/server/oidc';
 import { readFormOrJsonBody } from '$lib/server/http';
 
+function toTokenResponse(tokenSet: {
+	accessToken: string;
+	idToken: string;
+	refreshToken: string | null;
+	expiresIn: number;
+	scope: string;
+}) {
+	const response: Record<string, string | number> = {
+		access_token: tokenSet.accessToken,
+		token_type: 'Bearer',
+		expires_in: tokenSet.expiresIn,
+		scope: tokenSet.scope,
+		id_token: tokenSet.idToken
+	};
+
+	if (tokenSet.refreshToken) {
+		response.refresh_token = tokenSet.refreshToken;
+	}
+
+	return response;
+}
+
 export const POST = async ({ request }) => {
 	const body = await readFormOrJsonBody(request);
 	const basicAuthorization = request.headers.get('authorization') ?? '';
@@ -76,17 +98,7 @@ export const POST = async ({ request }) => {
 			});
 
 			const tokenSet = await issueTokenSet({ claims, clientId });
-			return json(
-				{
-					access_token: tokenSet.accessToken,
-					token_type: 'Bearer',
-					expires_in: tokenSet.expiresIn,
-					scope: tokenSet.scope,
-					id_token: tokenSet.idToken,
-					refresh_token: tokenSet.refreshToken
-				},
-				{ headers: { 'cache-control': 'no-store' } }
-			);
+			return json(toTokenResponse(tokenSet), { headers: { 'cache-control': 'no-store' } });
 		} catch (tokenError) {
 			return json(
 				{ error: 'invalid_grant', error_description: (tokenError as Error).message },
@@ -107,17 +119,7 @@ export const POST = async ({ request }) => {
 		try {
 			const claims = await verifyRefreshToken(refreshToken, clientId);
 			const tokenSet = await issueTokenSet({ claims, clientId });
-			return json(
-				{
-					access_token: tokenSet.accessToken,
-					token_type: 'Bearer',
-					expires_in: tokenSet.expiresIn,
-					scope: tokenSet.scope,
-					id_token: tokenSet.idToken,
-					refresh_token: tokenSet.refreshToken
-				},
-				{ headers: { 'cache-control': 'no-store' } }
-			);
+			return json(toTokenResponse(tokenSet), { headers: { 'cache-control': 'no-store' } });
 		} catch (refreshError) {
 			return json(
 				{ error: 'invalid_grant', error_description: (refreshError as Error).message },

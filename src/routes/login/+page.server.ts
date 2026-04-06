@@ -88,6 +88,15 @@ export const actions: Actions = {
 		);
 
 		const normalizedEmail = email.toLowerCase();
+		
+		if (normalizedEmail.endsWith('@hdsb.ca')) {
+			return fail(400, {
+				message: 'This email domain is not allowed',
+				returnTo,
+				email
+			});
+		}
+
 		const now = Date.now();
 		const nextAllowedAt = otpCooldownByEmail.get(normalizedEmail) ?? 0;
 		if (nextAllowedAt > now) {
