@@ -61,6 +61,17 @@ export function createSupabaseAuthedClient(accessToken: string) {
 	});
 }
 
+async function resolveSupabaseUserName(userId: string, accessToken: string, fallbackName: string) {
+	const client = createSupabaseAuthedClient(accessToken);
+	const { data } = await client
+		.from('user_profiles')
+		.select('preferred_name')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	return data?.preferred_name?.trim() || fallbackName;
+}
+
 export function getAccessTokenFromCookies(cookies: Cookies) {
 	return cookies.get(ACCESS_COOKIE)?.trim() ?? null;
 }
@@ -76,11 +87,15 @@ export async function getSupabaseUserFromAccessToken(accessToken: string): Promi
 		return null;
 	}
 
+	const fallbackName =
+		data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? data.user.email ?? data.user.id;
+	const name = await resolveSupabaseUserName(data.user.id, accessToken, fallbackName);
+
 	return {
 		id: data.user.id,
 		email: data.user.email ?? '',
 		emailVerified: Boolean(data.user.email_confirmed_at),
-		name: data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? data.user.email ?? data.user.id,
+		name,
 		isAdmin: data.user.user_metadata?.isAdmin === true || data.user.user_metadata?.role === 'admin'
 	};
 }
@@ -102,6 +117,10 @@ export async function signInWithEmailPassword(email: string, password: string) {
 		return { error: error?.message ?? 'Failed to sign in with Supabase.', data: null } as const;
 	}
 
+	const fallbackName =
+		data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? data.user.email ?? data.user.id;
+	const name = await resolveSupabaseUserName(data.user.id, data.session.access_token, fallbackName);
+
 	return {
 		error: null,
 		data: {
@@ -112,11 +131,7 @@ export async function signInWithEmailPassword(email: string, password: string) {
 				id: data.user.id,
 				email: data.user.email ?? '',
 				emailVerified: Boolean(data.user.email_confirmed_at),
-				name:
-					data.user.user_metadata?.full_name ??
-					data.user.user_metadata?.name ??
-					data.user.email ??
-					data.user.id,
+				name,
 				isAdmin: data.user.user_metadata?.isAdmin === true || data.user.user_metadata?.role === 'admin'
 			}
 		}

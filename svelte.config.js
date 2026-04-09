@@ -16,7 +16,7 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		csrf: {
-			checkOrigin: false
+			trustedOrigins: ['chat.nawab-as.tech']
 		}
 	}
 };

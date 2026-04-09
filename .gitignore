@@ -25,4 +25,4 @@ vite.config.ts.timestamp-*
 
 
 # cloudflared stuff
-cloudflared-linux-amd64.deb
+start_tunnel.sh

@@ -18,6 +18,7 @@
 	let oauthError = $state<string | null>(null);
 	let returnToFromLocation = $state('');
 	let sendingOtp = $state(false);
+	let verifyingOtp = $state(false);
 	let cooldownEndsAt = $state(0);
 	let now = $state(Date.now());
 
@@ -60,6 +61,7 @@
 	let sendOtpAction = $derived(`?/sendOtp`);
 	let verifyOtpAction = $derived(`?/verifyOtp`);
 	let sendOtpDisabled = $derived(sendingOtp || cooldownSecondsRemaining > 0);
+	let otpProcessing = $derived(sendingOtp || verifyingOtp);
 	let pageError = $derived(data.error ?? data.authError ?? null);
 
 	const enhanceSendOtp: SubmitFunction = () => {
@@ -88,8 +90,10 @@
 	};
 
 	const enhanceVerifyOtp: SubmitFunction = () => {
+		verifyingOtp = true;
 		return async ({ update }) => {
 			await update();
+			verifyingOtp = false;
 		};
 	};
 
@@ -187,6 +191,13 @@
 		<!-- Email OTP Authentication -->
 		{#if data.oauthSettings.emailEnabled}
 			<div class="email-section">
+				{#if otpProcessing}
+					<div class="processing-indicator" role="status" aria-live="polite">
+						<span class="spinner" aria-hidden="true"></span>
+						<span>{sendingOtp ? 'Sending your code...' : 'Verifying your code...'}</span>
+					</div>
+				{/if}
+
 				<form method="POST" action={sendOtpAction} use:enhance={enhanceSendOtp} class="form-stack">
 					<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
 					{#if !otpSent}
@@ -198,7 +209,7 @@
 								required
 								autocomplete="email"
 								bind:value={emailAddress}
-								readonly={sendingOtp}
+								readonly={otpProcessing}
 							/>
 						</label>
 					{:else}
@@ -237,6 +248,7 @@
 								autocomplete="one-time-code"
 								maxlength="6"
 								placeholder="123456"
+								readonly={verifyingOtp}
 								bind:value={otpCode}
 							/>
 						</label>
@@ -247,7 +259,9 @@
 						{:else}
 							<p class="success-message">Enter the 6-digit code from your email to finish sign in.</p>
 						{/if}
-						<button type="submit" class="primary" disabled={loading}>Verify code</button>
+						<button type="submit" class="primary" disabled={loading || verifyingOtp} aria-busy={verifyingOtp}>
+							{verifyingOtp ? 'Verifying...' : 'Verify code'}
+						</button>
 					</form>
 				{/if}
 			</div>
@@ -305,6 +319,34 @@
 
 	.email-section {
 		margin-bottom: 1.5rem;
+	}
+
+	.processing-indicator {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		background: #1f2937;
+		border: 1px solid #374151;
+		border-radius: 999px;
+		color: #d1d5db;
+		font-size: 0.85rem;
+		padding: 0.35rem 0.7rem;
+		margin-bottom: 0.8rem;
+	}
+
+	.spinner {
+		width: 0.9rem;
+		height: 0.9rem;
+		border-radius: 999px;
+		border: 2px solid #4b5563;
+		border-top-color: #e5e7eb;
+		animation: spin 0.9s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.verify-form {
