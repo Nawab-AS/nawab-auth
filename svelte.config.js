@@ -1,5 +1,9 @@
 import adapter from '@sveltejs/adapter-vercel';
+import { loadEnv } from 'vite';
 import { relative, sep } from 'node:path';
+
+const env = loadEnv('', process.cwd(), '');
+const trustedOrigin = new URL(env.OIDC_REDIRECT_URIS).origin;
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -16,7 +20,7 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		csrf: {
-			trustedOrigins: ['chat.nawab-as.tech']
+			trustedOrigins: [trustedOrigin]
 		}
 	}
 };
