@@ -6,15 +6,26 @@ import {
 	listAdminUsers,
 	rollApiKey,
 	setApiKeyDisabled,
-	setUserBanned
+	setUsageLimitUsd,
+	setUserState,
+	type UserState
 } from '$lib/server/account';
 import { getProviderDisplayName } from '$lib/server/oauth-settings';
 import { getLinkedProviders, revokeLinkedProvider } from '$lib/server/providers';
 import { getAdminUserEmail, getAdminUserProviders, revokeProviderForUser } from '$lib/server/admin-auth';
-import { getAccessTokenFromCookies } from '$lib/server/supabase';
+import { sendVerificationEmail } from '$lib/server/mail';
 import { parseBoolean } from '$lib/server/http';
+import { getAccessTokenFromCookies } from '$lib/server/supabase';
 import type { PageServerLoad } from './$types';
 import type { Actions } from './$types';
+
+function parseUserState(value: string): UserState | null {
+	if (value === 'unverified' || value === 'verified' || value === 'admin' || value === 'banned') {
+		return value;
+	}
+
+	return null;
+}
 
 async function requireAdminAccess(locals: App.Locals, cookies: import('@sveltejs/kit').Cookies) {
 	const user = locals.user;
@@ -167,22 +178,62 @@ export const actions: Actions = {
 			return fail(400, { actionMessage: message });
 		}
 	},
-	setUserBanned: async ({ locals, cookies, request }) => {
+	setUserState: async ({ locals, cookies, request }) => {
 		const { accessToken } = await requireAdminAccess(locals, cookies);
 
 		const formData = await request.formData();
 		const userId = String(formData.get('userId') ?? '').trim();
-		const banned = parseBoolean(String(formData.get('banned') ?? 'true'), true);
+		const nextState = parseUserState(String(formData.get('userState') ?? '').trim());
 
 		if (!userId) {
 			return fail(400, { actionMessage: 'User ID is required.' });
 		}
 
+		if (!nextState) {
+			return fail(400, { actionMessage: 'A valid user state is required.' });
+		}
+
 		try {
-			await setUserBanned(userId, accessToken, banned);
-			return { actionMessage: banned ? `Banned ${userId}.` : `Unbanned ${userId}.` };
+			const previousUser = await getAdminUserDetail(userId, accessToken);
+			const wasVerified = Boolean(previousUser?.isVerified);
+			await setUserState(userId, accessToken, nextState);
+
+			if (!wasVerified && (nextState === 'verified' || nextState === 'admin')) {
+				const email = await getAdminUserEmail(userId);
+				if (email) {
+					await sendVerificationEmail({
+						to: email,
+						preferredName: previousUser?.preferredName ?? null
+					});
+				}
+			}
+
+			return { actionMessage: `Updated ${userId} to ${nextState}.` };
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to update ban state.';
+			const message = error instanceof Error ? error.message : 'Failed to update user state.';
+			return fail(400, { actionMessage: message });
+		}
+	},
+	setUsageLimit: async ({ locals, cookies, request }) => {
+		const { accessToken } = await requireAdminAccess(locals, cookies);
+
+		const formData = await request.formData();
+		const userId = String(formData.get('userId') ?? '').trim();
+		const limitValue = Number(String(formData.get('allowedUsageUsd') ?? '').trim());
+
+		if (!userId) {
+			return fail(400, { actionMessage: 'User ID is required.' });
+		}
+
+		if (!Number.isFinite(limitValue) || limitValue < 0) {
+			return fail(400, { actionMessage: 'Usage limit must be a non-negative number.' });
+		}
+
+		try {
+			await setUsageLimitUsd(userId, accessToken, limitValue);
+			return { actionMessage: `Updated usage limit for ${userId}.` };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to update usage limit.';
 			return fail(400, { actionMessage: message });
 		}
 	},

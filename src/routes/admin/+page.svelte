@@ -3,7 +3,7 @@
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
 
-	type FilterMode = 'all' | 'admin' | 'banned' | 'no-key';
+	type FilterMode = 'all' | 'admin' | 'banned' | 'unverified' | 'no-key';
 
 	let query = $state('');
 	let filterMode = $state<FilterMode>('all');
@@ -13,6 +13,7 @@
 	const totalUsers = $derived(data.users.length);
 	const totalAdmins = $derived(data.users.filter((row) => row.isAdmin).length);
 	const totalBanned = $derived(data.users.filter((row) => row.banned).length);
+	const totalUnverified = $derived(data.users.filter((row) => row.userState === 'unverified').length);
 	const totalDisabledKeys = $derived(data.users.filter((row) => row.apiKeyDisabled).length);
 
 	const filteredUsers = $derived(
@@ -22,6 +23,10 @@
 			}
 
 			if (filterMode === 'banned' && !row.banned) {
+				return false;
+			}
+
+			if (filterMode === 'unverified' && row.userState !== 'unverified') {
 				return false;
 			}
 
@@ -131,6 +136,10 @@
 				<strong>{totalBanned}</strong>
 			</article>
 			<article>
+				<p>Unverified</p>
+				<strong>{totalUnverified}</strong>
+			</article>
+			<article>
 				<p>Disabled keys</p>
 				<strong>{totalDisabledKeys}</strong>
 			</article>
@@ -167,6 +176,13 @@
 					onclick={() => (filterMode = 'banned')}
 				>
 					Banned
+				</button>
+				<button
+					type="button"
+					class:active={filterMode === 'unverified'}
+					onclick={() => (filterMode = 'unverified')}
+				>
+					Unverified
 				</button>
 				<button
 					type="button"
@@ -207,20 +223,26 @@
 								<td>{row.preferredName ?? 'Unspecified'}</td>
 								<td>
 									<div class="flag-list">
+										<span class="flag">{row.userState}</span>
 										{#if row.isAdmin}
 											<span class="flag flag-admin">Admin</span>
 										{/if}
 										{#if row.banned}
 											<span class="flag flag-ban">Banned</span>
 										{/if}
-										{#if !row.isAdmin && !row.banned}
+										{#if row.userState === 'unverified'}
+											<span class="flag">Needs verify</span>
+										{:else if !row.isAdmin && !row.banned}
 											<span class="flag">Standard</span>
 										{/if}
 									</div>
 								</td>
 								<td><span class="key-pill">{getApiKeyState(row.apiKeyAssigned, row.apiKeyDisabled)}</span></td>
 								<td>
-									<a class="small-button" href={`/admin?user_id=${encodeURIComponent(row.userId)}`}>Open</a>
+									<form method="GET" action="/admin">
+										<input type="hidden" name="user_id" value={row.userId} />
+										<button type="submit" class="small-button">Open</button>
+									</form>
 								</td>
 							</tr>
 						{/each}
@@ -236,6 +258,7 @@
 					<p class="mono">{selectedRow.userId}</p>
 					<p>{selectedEmail ?? 'No email available'}</p>
 					<p>API key: <strong>{apiKeyStateLabel}</strong></p>
+					<p>User state: <strong>{selectedRow.userState}</strong></p>
 					<div class="flag-list">
 						{#if selectedRow.isAdmin}
 							<span class="flag flag-admin">Admin</span>
@@ -251,6 +274,20 @@
 					<p>Allowed: ${data.selectedUser.allowedUsageUsd.toFixed(2)}</p>
 					<p>Current usage: ${data.selectedUser.currentUsageUsd.toFixed(2)}</p>
 					<p class={`usage-${getUsageTone(remainingCredits)}`}>Remaining: ${remainingCredits.toFixed(2)}</p>
+					<form method="POST" action="?/setUsageLimit">
+						<input type="hidden" name="userId" value={selectedRow.userId} />
+						<label class="search-wrap">
+							<span>Set allowed usage (USD)</span>
+							<input
+								type="number"
+								name="allowedUsageUsd"
+								min="0"
+								step="0.01"
+								value={data.selectedUser.allowedUsageUsd.toFixed(2)}
+							/>
+						</label>
+						<button type="submit" class="small-button">Save limit</button>
+					</form>
 					<form method="POST" action="?/refreshUsage">
 						<input type="hidden" name="userId" value={selectedRow.userId} />
 						<button type="submit" class="small-button">Refresh usage</button>
@@ -294,13 +331,19 @@
 				</article>
 
 				<article class="detail-card action-card">
-					<h2>Moderation</h2>
-					<form method="POST" action="?/setUserBanned">
+					<h2>User state</h2>
+					<form method="POST" action="?/setUserState">
 						<input type="hidden" name="userId" value={selectedRow.userId} />
-						<input type="hidden" name="banned" value={selectedRow.banned ? 'false' : 'true'} />
-						<button type="submit" class="danger">
-							{selectedRow.banned ? 'Unban user' : 'Ban user'}
-						</button>
+						<label class="search-wrap">
+							<span>Set state</span>
+							<select name="userState">
+								<option value="unverified" selected={selectedRow.userState === 'unverified'}>unverified</option>
+								<option value="verified" selected={selectedRow.userState === 'verified'}>verified</option>
+								<option value="admin" selected={selectedRow.userState === 'admin'}>admin</option>
+								<option value="banned" selected={selectedRow.userState === 'banned'}>banned</option>
+							</select>
+						</label>
+						<button type="submit">Save state</button>
 					</form>
 
 					<form method="POST" action="?/deleteAccount">
@@ -439,6 +482,16 @@
 	input[type='search']:focus-visible {
 		outline: 2px solid var(--accent);
 		outline-offset: 2px;
+	}
+
+	input[type='number'],
+	select {
+		padding: 0.68rem 0.82rem;
+		border-radius: 0.6rem;
+		border: 1px solid #3b4250;
+		background: #15181e;
+		color: var(--text);
+		font: inherit;
 	}
 
 	.chips {

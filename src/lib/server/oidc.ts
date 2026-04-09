@@ -28,10 +28,13 @@ export interface DashboardSnapshot {
 	emailVerified: boolean;
 	locale: 'en';
 	isAdmin: boolean;
+	isVerified: boolean;
+	userState: 'unverified' | 'verified' | 'admin' | 'banned';
 	preferredName: string | null;
 	allowedUsageUsd: number;
 	usageCarriedForwardUsd: number;
 	currentUsageUsd: number;
+	apiKeyFingerprint: string | null;
 	apiKeyAssigned: boolean;
 	apiKeyDisabled: boolean;
 	rolledKeyIds: string[];

@@ -8,7 +8,12 @@ import {
 	parseScopes,
 	type SupportedScope
 } from '$lib/server/oidc';
-import { getSupabaseUserFromCookies } from '$lib/server/supabase';
+import {
+	getUserSsoState,
+	markOnboardingVideoWatched,
+	provisionApiKeyForFirstSso
+} from '$lib/server/account';
+import { getAccessTokenFromCookies, getSupabaseUserFromCookies } from '$lib/server/supabase';
 
 export const load = async ({ url, cookies }) => {
 	const clientId = url.searchParams.get('client_id')?.trim() ?? '';
@@ -41,8 +46,16 @@ export const load = async ({ url, cookies }) => {
 		throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
 	}
 
+	const accessToken = getAccessTokenFromCookies(cookies);
+	if (!accessToken) {
+		throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
+	}
+
+	const ssoState = await getUserSsoState(user.id, accessToken);
+
 	return {
 		user,
+		ssoState,
 		clientId,
 		redirectUri,
 		scopes: scope,
@@ -69,6 +82,7 @@ export const actions = {
 		const codeChallenge = String(formData.get('code_challenge') ?? url.searchParams.get('code_challenge') ?? '').trim();
 		const nonce = String(formData.get('nonce') ?? url.searchParams.get('nonce') ?? '').trim() || undefined;
 		const user = await getSupabaseUserFromCookies(cookies);
+		const watchedVideo = String(formData.get('watched_video') ?? '').trim() === 'true';
 
 		if (!isAllowedRedirectUri(redirectUri)) {
 			throw error(400, 'redirect_uri is not allowed');
@@ -84,6 +98,28 @@ export const actions = {
 
 		if (!user) {
 			throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
+		}
+
+		const accessToken = getAccessTokenFromCookies(cookies);
+		if (!accessToken) {
+			throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
+		}
+
+		const ssoState = await getUserSsoState(user.id, accessToken);
+		if (!ssoState.isVerified) {
+			throw error(403, 'Your account is not verified yet. An admin must verify your account before SSO use.');
+		}
+
+		if (!ssoState.firstSsoCompleted && !ssoState.videoWatched && !watchedVideo) {
+			throw error(400, 'Watch the video first before approving SSO for the first time.');
+		}
+
+		if (!ssoState.videoWatched && watchedVideo) {
+			await markOnboardingVideoWatched(user.id, accessToken);
+		}
+
+		if (!ssoState.firstSsoCompleted) {
+			await provisionApiKeyForFirstSso(user.id, accessToken);
 		}
 
 		const code = await createAuthorizationCode({

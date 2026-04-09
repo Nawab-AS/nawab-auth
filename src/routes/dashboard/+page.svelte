@@ -18,6 +18,22 @@
 
 		return 'Assigned';
 	});
+
+	const userStateLabel = $derived.by(() => {
+		if (data.userState === 'unverified') {
+			return 'Unverified';
+		}
+
+		if (data.userState === 'verified') {
+			return 'Verified';
+		}
+
+		if (data.userState === 'admin') {
+			return 'Admin';
+		}
+
+		return 'Banned';
+	});
 </script>
 
 <svelte:head>
@@ -36,6 +52,10 @@
 			<div>
 				<span>Preferred name</span>
 				<strong>{data.preferredName ?? data.user!.name}</strong>
+			</div>
+			<div>
+				<span>Account state</span>
+				<strong>{userStateLabel}</strong>
 			</div>
 			<div>
 				<span>Linked email</span>
@@ -68,6 +88,10 @@
 			<span>API key</span>
 			<strong>{apiKeyState}</strong>
 		</article>
+		<article>
+			<span>API key fingerprint</span>
+			<strong>{data.apiKeyFingerprint ?? 'Not provisioned'}</strong>
+		</article>
 	</section>
 
 	<section class="panel-grid">
@@ -75,8 +99,12 @@
 			<h2>API key</h2>
 			<p>Create a new key anytime, or disable your current key without deleting it.</p>
 
+			{#if !data.isVerified}
+				<p class="notice">Your account is unverified. Rolling a key is blocked until an admin verifies your account.</p>
+			{/if}
+
 			<form method="POST" action="?/rollKey">
-				<button type="submit" class="primary">Roll API key</button>
+				<button type="submit" class="primary" disabled={!data.isVerified}>Roll API key</button>
 			</form>
 
 			<form method="POST" action="?/disableKey">
@@ -97,6 +125,10 @@
 			{#if form?.keyMessage}
 				<p class="notice">{form.keyMessage}</p>
 			{/if}
+
+			<form method="GET" action="/help">
+				<button type="submit" class="secondary">Help</button>
+			</form>
 		</div>
 
 		<div class="panel">

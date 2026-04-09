@@ -2,6 +2,11 @@
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
+	let watchedInSession = $state(false);
+
+	const mustWatchVideo = $derived(!data.ssoState.firstSsoCompleted && !data.ssoState.videoWatched);
+	const videoWatched = $derived(data.ssoState.videoWatched || data.ssoState.firstSsoCompleted || watchedInSession);
+	const approveDisabled = $derived(!data.ssoState.isVerified || (mustWatchVideo && !videoWatched));
 </script>
 
 <svelte:head>
@@ -31,6 +36,20 @@
 			{/each}
 		</ul>
 
+		{#if !data.ssoState.isVerified}
+			<p class="notice">Your account is unverified. An admin must verify your account before you can approve SSO.</p>
+		{:else if mustWatchVideo}
+			<div class="share-card">
+				<p class="share-title">First-time setup required</p>
+				<p class="share-note">Watch this setup video before approving. The API key will be automatically generated.</p>
+				<video controls preload="metadata" onended={() => (watchedInSession = true)}>
+					<source src="https://cdn.example.com/nawab-key-setup.mp4" type="video/mp4" />
+					Your browser does not support video playback.
+				</video>
+				<p class="share-note">{videoWatched ? 'Video watched. You can approve now.' : 'Watch the video first to enable approve.'}</p>
+			</div>
+		{/if}
+
 		<div class="actions">
 			<form method="POST" action="?/approve">
 				<input type="hidden" name="client_id" value={data.clientId} />
@@ -39,7 +58,10 @@
 				<input type="hidden" name="code_challenge" value={data.codeChallenge} />
 				<input type="hidden" name="redirect_uri" value={data.redirectUri} />
 				<input type="hidden" name="state" value={data.state} />
-				<button type="submit" class="primary">Approve</button>
+				<input type="hidden" name="watched_video" value={videoWatched ? 'true' : 'false'} />
+				<button type="submit" class="primary" disabled={approveDisabled}>
+					{approveDisabled && mustWatchVideo ? 'Watch the video first' : 'Approve'}
+				</button>
 			</form>
 
 			<form method="POST" action="?/deny">
@@ -181,6 +203,18 @@
 		font: inherit;
 		font-weight: 700;
 		cursor: pointer;
+	}
+
+	button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	video {
+		width: 100%;
+		border-radius: 0.5rem;
+		border: 1px solid #334155;
+		background: #000;
 	}
 
 	.primary {
