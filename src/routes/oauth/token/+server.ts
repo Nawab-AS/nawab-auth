@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import {
 	consumeAuthorizationCode,
+	allowPublicTokenClient,
 	getOidcClientId,
 	getOidcClientSecret,
 	issueTokenSet,
@@ -40,6 +41,9 @@ export const POST = async ({ request }) => {
 	const body = await readFormOrJsonBody(request);
 	const basicAuthorization = request.headers.get('authorization') ?? '';
 	const corsHeaders = getCorsHeaders(request.headers.get('origin'));
+	const clientSecretConfigured = Boolean(getOidcClientSecret());
+	const clientAuthProvided = basicAuthorization.toLowerCase().startsWith('basic ')
+		|| Boolean(String(body.client_secret ?? '').trim());
 
 	let basicClientId = '';
 	let basicClientSecret = '';
@@ -64,7 +68,6 @@ export const POST = async ({ request }) => {
 
 	const grantType = String(body.grant_type ?? '').trim();
 	const expectedClientId = getOidcClientId();
-	const expectedClientSecret = getOidcClientSecret();
 	const bodyClientId = String(body.client_id ?? '').trim();
 	const bodyClientSecret = String(body.client_secret ?? '').trim();
 	const clientId = basicClientId || bodyClientId || expectedClientId;
@@ -77,9 +80,16 @@ export const POST = async ({ request }) => {
 		);
 	}
 
-	if (providedClientSecret !== expectedClientSecret) {
+	if (clientSecretConfigured && clientAuthProvided && providedClientSecret !== getOidcClientSecret()) {
 		return json(
 			{ error: 'invalid_client', error_description: 'Invalid client authentication.' },
+			{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
+		);
+	}
+
+	if (clientSecretConfigured && !clientAuthProvided && !allowPublicTokenClient()) {
+		return json(
+			{ error: 'invalid_client', error_description: 'Client authentication is required.' },
 			{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
 		);
 	}

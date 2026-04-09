@@ -119,7 +119,11 @@ export function getOidcClientId(): OidcClientId {
 }
 
 export function getOidcClientSecret() {
-	return getRequiredEnv('OIDC_CLIENT_SECRET');
+	return env.OIDC_CLIENT_SECRET?.trim() ?? '';
+}
+
+export function allowPublicTokenClient() {
+	return (env.OIDC_ALLOW_PUBLIC_TOKEN_CLIENT ?? '').trim().toLowerCase() === 'true';
 }
 
 export function getAllowedRedirectUris() {
@@ -166,7 +170,11 @@ export function parseScopes(scope: string | null) {
 
 export function buildDiscoveryDocument() {
 	const issuer = getIssuer();
-	const tokenAuthMethods = getOidcClientSecret() ? ['client_secret_basic', 'client_secret_post'] : ['none'];
+	const tokenAuthMethods = getOidcClientSecret()
+		? allowPublicTokenClient()
+			? ['client_secret_basic', 'client_secret_post', 'none']
+			: ['client_secret_basic', 'client_secret_post']
+		: ['none'];
 
 	return {
 		issuer,

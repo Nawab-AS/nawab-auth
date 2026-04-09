@@ -67,6 +67,7 @@ Required for local development:
 - `OIDC_ISSUER_URL`
 - `OIDC_CLIENT_ID`
 - `OIDC_CLIENT_SECRET`
+- `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT`
 - `OIDC_REDIRECT_URIS`
 - `ALLOWED_ORIGINS`
 - `SUPPORT_EMAIL`
@@ -82,6 +83,8 @@ Recommended for stable OIDC tokens across restarts:
 
 If `OIDC_PRIVATE_JWK` is missing, the app generates an ephemeral signing key at runtime, which invalidates existing tokens after restart.
 
+If your OIDC client is public and does not send a client secret to `/oauth/token`, set `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=true`. This is useful for PKCE-based clients such as LibreChat when token exchange happens without client authentication.
+
 ### CORS Configuration for OAuth Endpoints
 
 OAuth API routes use a centralized origin allowlist configured with `ALLOWED_ORIGINS`.
@@ -91,6 +94,14 @@ OAuth API routes use a centralized origin allowlist configured with `ALLOWED_ORI
 - Example (production): `ALLOWED_ORIGINS=https://chat.example.com`
 
 When an incoming request `Origin` matches the allowlist, OAuth routes return CORS headers and handle preflight `OPTIONS` requests. If not matched, browser cross-origin calls are blocked.
+
+### Token Endpoint Authentication
+
+By default, the token endpoint expects client authentication when `OIDC_CLIENT_SECRET` is configured.
+
+- Confidential client: set `OIDC_CLIENT_SECRET` and leave `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=false`
+- Public PKCE client: set `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=true`
+- If `OIDC_CLIENT_SECRET` is empty, the client is treated as public
 
 ## OIDC Endpoints
 
@@ -156,6 +167,7 @@ When an incoming request `Origin` matches the allowlist, OAuth routes return COR
 - Keep runtime code edge-safe: avoid Node built-ins in edge paths.
 - Configure production env vars in Vercel project settings.
 - Set `ALLOWED_ORIGINS` to your client app origin(s), for example: `https://chat.example.com`.
+- If LibreChat is exchanging auth codes without a client secret, set `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=true`.
 - If verification emails are enabled, configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` in production.
 
 ## Roadmap (Next)
