@@ -5,7 +5,7 @@
 
 /**
  * Get allowed origins from environment variable
- * Format: ALLOWED_ORIGINS="http://localhost:3000,https://chat.nawab-as.software"
+ * Format: ALLOWED_ORIGINS="http://localhost:3000,https://chat.example.com"
  */
 function getAllowedOrigins(): string[] {
 	const envOrigins = process.env.ALLOWED_ORIGINS || '';

@@ -68,6 +68,7 @@ Required for local development:
 - `OIDC_CLIENT_ID`
 - `OIDC_CLIENT_SECRET`
 - `OIDC_REDIRECT_URIS`
+- `ALLOWED_ORIGINS`
 - `SUPPORT_EMAIL`
 
 Optional for verification email delivery:
@@ -80,6 +81,16 @@ Recommended for stable OIDC tokens across restarts:
 - `OIDC_PRIVATE_JWK` (JSON string containing an RSA private JWK with `kid`)
 
 If `OIDC_PRIVATE_JWK` is missing, the app generates an ephemeral signing key at runtime, which invalidates existing tokens after restart.
+
+### CORS Configuration for OAuth Endpoints
+
+OAuth API routes use a centralized origin allowlist configured with `ALLOWED_ORIGINS`.
+
+- Format: comma-separated browser origins (scheme + host + optional port)
+- Example (local): `ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173`
+- Example (production): `ALLOWED_ORIGINS=https://chat.example.com`
+
+When an incoming request `Origin` matches the allowlist, OAuth routes return CORS headers and handle preflight `OPTIONS` requests. If not matched, browser cross-origin calls are blocked.
 
 ## OIDC Endpoints
 
@@ -144,6 +155,7 @@ If `OIDC_PRIVATE_JWK` is missing, the app generates an ephemeral signing key at 
 - Target runtime is Vercel Edge-compatible architecture.
 - Keep runtime code edge-safe: avoid Node built-ins in edge paths.
 - Configure production env vars in Vercel project settings.
+- Set `ALLOWED_ORIGINS` to your client app origin(s), for example: `https://chat.example.com`.
 - If verification emails are enabled, configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` in production.
 
 ## Roadmap (Next)
