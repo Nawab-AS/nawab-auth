@@ -82,6 +82,8 @@ const oneTimeCodeUse = new Set<string>();
 const revokedTokenIds = new Set<string>();
 let signingContextPromise: Promise<SigningContext> | null = null;
 
+const PRIVATE_JWK_FIELDS = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
+
 export const betterOAuthProviderConfig: OAuthOptions = {
 	scopes: [...supportedScopes],
 	loginPage: '/login',
@@ -201,8 +203,9 @@ async function createSigningContextFromEnv(): Promise<SigningContext | null> {
 
 	const privateJwk = JSON.parse(maybePrivate) as JWK;
 	const privateKey = await importJWK(privateJwk, OIDC_ALG);
-	const publicJwk = await exportJWK(privateKey);
-	delete publicJwk.d;
+	const publicJwk = Object.fromEntries(
+		Object.entries(privateJwk).filter(([field]) => !PRIVATE_JWK_FIELDS.has(field))
+	) as JWK;
 	const publicKey = await importJWK(publicJwk, OIDC_ALG);
 	const kid = privateJwk.kid ?? (await calculateJwkThumbprint(publicJwk));
 
