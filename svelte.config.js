@@ -3,7 +3,23 @@ import { loadEnv } from 'vite';
 import { relative, sep } from 'node:path';
 
 const env = loadEnv('', process.cwd(), '');
-const trustedOrigin = new URL(env.OIDC_REDIRECT_URIS).origin;
+
+function toOrigin(value) {
+	try {
+		return new URL(value.trim()).origin;
+	} catch {
+		return null;
+	}
+}
+
+const trustedOrigins = [
+	...(env.OIDC_REDIRECT_URIS ?? '').split(','),
+	...(env.ALLOWED_ORIGINS ?? '').split(',')
+]
+	.map(toOrigin)
+	.filter((origin) => Boolean(origin));
+
+const dedupedTrustedOrigins = [...new Set(trustedOrigins)];
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -20,7 +36,7 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		csrf: {
-			trustedOrigins: [trustedOrigin]
+			trustedOrigins: dedupedTrustedOrigins
 		}
 	}
 };
