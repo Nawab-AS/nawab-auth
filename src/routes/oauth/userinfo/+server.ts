@@ -1,6 +1,43 @@
 import { json } from '@sveltejs/kit';
+import { createClient } from '@supabase/supabase-js';
+import { env } from '$env/dynamic/private';
 import { verifyAccessToken } from '$lib/server/oidc';
+import { getSupabaseUrl } from '$lib/server/supabase';
 import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
+
+function getServiceRoleKey() {
+	return env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? '';
+}
+
+function createServiceRoleClient() {
+	const serviceRoleKey = getServiceRoleKey();
+	if (!serviceRoleKey) {
+		throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+	}
+
+	return createClient(getSupabaseUrl(), serviceRoleKey, {
+		auth: {
+			autoRefreshToken: false,
+			persistSession: false,
+			detectSessionInUrl: false
+		}
+	});
+}
+
+async function getPreferredName(userId: string) {
+	const client = createServiceRoleClient();
+	const { data, error } = await client
+		.from('user_profiles')
+		.select('preferred_name')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (error) {
+		throw new Error(error.message);
+	}
+
+	return data?.preferred_name?.trim() ?? null;
+}
 
 export const OPTIONS = async ({ request }) => {
 	const origin = request.headers.get('origin');
@@ -22,12 +59,14 @@ export const GET = async ({ request }) => {
 
 	try {
 		const payload = await verifyAccessToken(token);
+		const userId = String(payload.sub ?? '').trim();
+		const preferredName = userId ? await getPreferredName(userId) : null;
 		return json(
 			{
-				sub: String(payload.sub ?? ''),
+				sub: userId,
 				email: String(payload.email ?? ''),
 				email_verified: Boolean(payload.email_verified),
-				name: String(payload.name ?? ''),
+				name: preferredName ?? String(payload.name ?? ''),
 				preferred_username: String(payload.preferred_username ?? '')
 			},
 			{ headers: { 'cache-control': 'no-store', ...corsHeaders } }
