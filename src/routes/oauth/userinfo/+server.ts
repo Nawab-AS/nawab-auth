@@ -12,7 +12,7 @@ function getServiceRoleKey() {
 function createServiceRoleClient() {
 	const serviceRoleKey = getServiceRoleKey();
 	if (!serviceRoleKey) {
-		throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+		return null;
 	}
 
 	return createClient(getSupabaseUrl(), serviceRoleKey, {
@@ -25,18 +25,26 @@ function createServiceRoleClient() {
 }
 
 async function getPreferredName(userId: string) {
-	const client = createServiceRoleClient();
-	const { data, error } = await client
-		.from('user_profiles')
-		.select('preferred_name')
-		.eq('user_id', userId)
-		.maybeSingle();
+	try {
+		const client = createServiceRoleClient();
+		if (!client) {
+			return null;
+		}
 
-	if (error) {
-		throw new Error(error.message);
+		const { data, error } = await client
+			.from('user_profiles')
+			.select('preferred_name')
+			.eq('user_id', userId)
+			.maybeSingle();
+
+		if (error) {
+			return null;
+		}
+
+		return data?.preferred_name?.trim() ?? null;
+	} catch {
+		return null;
 	}
-
-	return data?.preferred_name?.trim() ?? null;
 }
 
 export const OPTIONS = async ({ request }) => {
