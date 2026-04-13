@@ -364,6 +364,35 @@ export async function completeUserOnboarding(input: CompleteOnboardingInput) {
 	}
 }
 
+/**
+ * Get user's preferred name from database (used in OIDC tokens)
+ */
+export async function getUserPreferredName(
+	userId: string,
+	accessToken: string,
+	fallback: string = ''
+): Promise<string> {
+	try {
+		const client = createSupabaseAuthedClient(accessToken);
+		const { data, error } = await client
+			.from('user_profiles')
+			.select('preferred_name')
+			.eq('user_id', userId)
+			.maybeSingle();
+
+		if (error) {
+			console.warn(`Failed to fetch preferred name for user ${userId}:`, error);
+			return fallback;
+		}
+
+		const profile = data as UserProfileRow | null;
+		return profile?.preferred_name ?? fallback;
+	} catch (err) {
+		console.warn(`Error getting preferred name for user ${userId}:`, err);
+		return fallback;
+	}
+}
+
 export async function getDashboardSnapshot(
 	user: SupabaseSessionUser,
 	accessToken: string | null

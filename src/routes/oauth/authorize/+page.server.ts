@@ -11,7 +11,8 @@ import {
 import {
 	getUserSsoState,
 	markOnboardingVideoWatched,
-	provisionApiKeyForFirstSso
+	provisionApiKeyForFirstSso,
+	getUserPreferredName
 } from '$lib/server/account';
 import { getAccessTokenFromCookies, getSupabaseUserFromCookies } from '$lib/server/supabase';
 
@@ -122,12 +123,15 @@ export const actions = {
 			await provisionApiKeyForFirstSso(user.id, accessToken);
 		}
 
+		// Get the user's preferred name from the database, fallback to auth name
+		const preferredName = await getUserPreferredName(user.id, accessToken, user.name);
+
 		const code = await createAuthorizationCode({
 			identity: {
 				id: user.id,
 				email: user.email,
 				emailVerified: user.emailVerified,
-				name: user.name
+				name: preferredName
 			},
 			clientId,
 			redirectUri,
