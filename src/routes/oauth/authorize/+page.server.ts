@@ -131,7 +131,8 @@ export const actions = {
 				id: user.id,
 				email: user.email,
 				emailVerified: user.emailVerified,
-				name: preferredName
+				name: preferredName,
+				preferredUsername: preferredName
 			},
 			clientId,
 			redirectUri,

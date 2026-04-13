@@ -27,7 +27,8 @@ export const GET = async ({ request }) => {
 				sub: String(payload.sub ?? ''),
 				email: String(payload.email ?? ''),
 				email_verified: Boolean(payload.email_verified),
-				name: String(payload.name ?? '')
+				name: String(payload.name ?? ''),
+				preferred_username: String(payload.preferred_username ?? '')
 			},
 			{ headers: { 'cache-control': 'no-store', ...corsHeaders } }
 		);

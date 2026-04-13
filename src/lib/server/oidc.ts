@@ -45,6 +45,7 @@ export interface SessionIdentity {
 	email: string;
 	emailVerified: boolean;
 	name: string;
+	preferredUsername: string;
 }
 
 interface AuthorizationCodePayload {
@@ -52,6 +53,7 @@ interface AuthorizationCodePayload {
 	email: string;
 	email_verified: boolean;
 	name: string;
+	preferred_username: string;
 	client_id: string;
 	redirect_uri: string;
 	scope: string;
@@ -65,6 +67,7 @@ interface TokenClaims {
 	email: string;
 	emailVerified: boolean;
 	name: string;
+	preferredUsername: string;
 	clientId: string;
 	scope: string;
 	nonce?: string;
@@ -91,7 +94,7 @@ export const betterOAuthProviderConfig: OAuthOptions = {
 	grantTypes: ['authorization_code', 'refresh_token'],
 	advertisedMetadata: {
 		scopes_supported: [...supportedScopes],
-		claims_supported: ['sub', 'email', 'email_verified', 'name']
+		claims_supported: ['sub', 'email', 'email_verified', 'name', 'preferred_username']
 	}
 };
 
@@ -190,7 +193,7 @@ export function buildDiscoveryDocument() {
 		scopes_supported: [...supportedScopes],
 		grant_types_supported: ['authorization_code', 'refresh_token'],
 		token_endpoint_auth_methods_supported: tokenAuthMethods,
-		claims_supported: ['sub', 'email', 'email_verified', 'name'],
+		claims_supported: ['sub', 'email', 'email_verified', 'name', 'preferred_username'],
 		code_challenge_methods_supported: ['S256']
 	};
 }
@@ -316,6 +319,7 @@ export async function createAuthorizationCode(input: {
 		email: input.identity.email,
 		email_verified: input.identity.emailVerified,
 		name: input.identity.name,
+		preferred_username: input.identity.preferredUsername,
 		client_id: input.clientId,
 		redirect_uri: input.redirectUri,
 		scope: input.scopes.join(' '),
@@ -389,6 +393,7 @@ export async function consumeAuthorizationCode(input: {
 		email: payload.email,
 		emailVerified: payload.email_verified,
 		name: payload.name,
+		preferredUsername: payload.preferred_username,
 		scope: payload.scope,
 		nonce: payload.nonce,
 		clientId: input.clientId
@@ -421,6 +426,7 @@ export async function issueTokenSet(input: { claims: TokenClaims; clientId: stri
 			email: input.claims.email,
 			email_verified: input.claims.emailVerified,
 			name: input.claims.name,
+			preferred_username: input.claims.preferredUsername,
 			scope,
 			client_id: input.clientId,
 			token_use: 'access'
@@ -434,6 +440,7 @@ export async function issueTokenSet(input: { claims: TokenClaims; clientId: stri
 			email: input.claims.email,
 			email_verified: input.claims.emailVerified,
 			name: input.claims.name,
+			preferred_username: input.claims.preferredUsername,
 			nonce: input.claims.nonce,
 			token_use: 'id'
 		},
@@ -447,6 +454,7 @@ export async function issueTokenSet(input: { claims: TokenClaims; clientId: stri
 					email: input.claims.email,
 					email_verified: input.claims.emailVerified,
 					name: input.claims.name,
+					preferred_username: input.claims.preferredUsername,
 					scope,
 					client_id: input.clientId,
 					token_use: 'refresh'
@@ -486,6 +494,7 @@ export async function verifyRefreshToken(refreshToken: string, clientId: string)
 		email: String(verified.payload.email ?? ''),
 		emailVerified: Boolean(verified.payload.email_verified),
 		name: String(verified.payload.name ?? ''),
+		preferredUsername: String(verified.payload.preferred_username ?? ''),
 		clientId,
 		scope: String(verified.payload.scope ?? 'openid'),
 		nonce: undefined
