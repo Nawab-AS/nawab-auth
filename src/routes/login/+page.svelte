@@ -7,6 +7,18 @@
 	type LoginPageData = PageData & {
 		error?: string | null;
 		authError?: string | null;
+		onboardingVideoUrl: string;
+		signedIn?: boolean;
+		oidcGate?: {
+			isVerified: boolean;
+			onboarded: boolean;
+			firstSsoCompleted: boolean;
+			videoWatched: boolean;
+			hasApiKey: boolean;
+			apiKeyDisabled: boolean;
+			canProceedToOidc: boolean;
+			canManageAfterPrerequisites: boolean;
+		};
 	};
 
 	let { data, form }: { data: LoginPageData; form: ActionData | undefined } = $props();
@@ -19,6 +31,9 @@
 	let returnToFromLocation = $state('');
 	let sendingOtp = $state(false);
 	let verifyingOtp = $state(false);
+	let gateActionBusy = $state(false);
+	let generatedApiKey = $state<string | null>(null);
+	let copied = $state(false);
 	let cooldownEndsAt = $state(0);
 	let now = $state(Date.now());
 
@@ -63,6 +78,11 @@
 	let sendOtpDisabled = $derived(sendingOtp || cooldownSecondsRemaining > 0);
 	let otpProcessing = $derived(sendingOtp || verifyingOtp);
 	let pageError = $derived(data.error ?? data.authError ?? null);
+	let isSignedInGateMode = $derived(Boolean(data.signedIn));
+	let gateState = $derived(form?.oidcGate ?? data.oidcGate ?? null);
+	let gateMessage = $derived(
+		typeof form?.gateMessage === 'string' ? form.gateMessage : null
+	);
 
 	const enhanceSendOtp: SubmitFunction = () => {
 		sendingOtp = true;
@@ -97,21 +117,54 @@
 		};
 	};
 
+	const enhanceGateAction: SubmitFunction = () => {
+		gateActionBusy = true;
+		return async ({ update, result }) => {
+			await update();
+			gateActionBusy = false;
+
+			if (
+				(result.type === 'success' || result.type === 'failure') &&
+				typeof result.data?.generatedApiKey === 'string'
+			) {
+				generatedApiKey = result.data.generatedApiKey;
+				copied = false;
+			}
+		};
+	};
+
+	function goToConsent() {
+		window.location.href = resolvedReturnTo;
+	}
+
+	async function copyGeneratedKey() {
+		if (!generatedApiKey) {
+			return;
+		}
+
+		try {
+			await navigator.clipboard.writeText(generatedApiKey);
+			copied = true;
+		} catch {
+			copied = false;
+		}
+	}
+
+	function dismissGeneratedKey() {
+		generatedApiKey = null;
+		copied = false;
+	}
+
 	function getProviderDisplayName(provider: string): string {
 		const names: Record<string, string> = {
 			github: 'GitHub',
 			google: 'Google',
 			discord: 'Discord',
 			apple: 'Apple',
-			facebook: 'Facebook',
 			linkedin: 'LinkedIn',
 			azure: 'Microsoft',
 			gitlab: 'GitLab',
 			bitbucket: 'Bitbucket',
-			twitch: 'Twitch',
-			twitter: 'X',
-			slack: 'Slack',
-			spotify: 'Spotify'
 		};
 		return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
 	}
@@ -149,129 +202,208 @@
 
 <main class="shell">
 	<section class="panel">
-		<p class="eyebrow">Authentication</p>
-		<h1>Sign In</h1>
+		{#if isSignedInGateMode && gateState}
+			<p class="eyebrow">OIDC preflight</p>
+			<h1>Finish key setup</h1>
 
-		{#if pageError}
-			<p class="error-message">{pageError}</p>
-		{/if}
+			{#if pageError}
+				<p class="error-message">{pageError}</p>
+			{/if}
 
-		{#if oauthError}
-			<p class="error-message">{oauthError}</p>
-		{/if}
+			{#if gateMessage}
+				<p class="success-message">{gateMessage}</p>
+			{/if}
 
-		<!-- OAuth Providers -->
-		{#if data.oauthSettings.providers.length > 0}
-			<div class="oauth-section">
-				<p class="section-label">Sign in with</p>
-				<div class="oauth-buttons">
-					{#each data.oauthSettings.providers as provider (provider)}
-						<button
-							type="button"
-							class="oauth-btn"
-							onclick={() => handleOAuthLogin(provider)}
-							disabled={loading}
-							title={getProviderDisplayName(provider)}
-						>
-							{#if getProviderLogoPath(provider)}
-								<img src={getProviderLogoPath(provider)} alt={getProviderDisplayName(provider)} />
-							{:else}
-								<span class="provider-icon">{getProviderDisplayName(provider).charAt(0)}</span>
-							{/if}
-							<span class="provider-name">{getProviderDisplayName(provider)}</span>
-						</button>
-					{/each}
-				</div>
-				{#if data.oauthSettings.emailEnabled}
-					<div class="divider">or</div>
-				{/if}
-			</div>
-		{/if}
-
-		<!-- Email OTP Authentication -->
-		{#if data.oauthSettings.emailEnabled}
-			<div class="email-section">
-				{#if otpProcessing}
-					<div class="processing-indicator" role="status" aria-live="polite">
-						<span class="spinner" aria-hidden="true"></span>
-						<span>{sendingOtp ? 'Sending your code...' : 'Verifying your code...'}</span>
-					</div>
-				{/if}
-
-				<form method="POST" action={sendOtpAction} use:enhance={enhanceSendOtp} class="form-stack">
-					<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
-					{#if !otpSent}
-						<label>
-							<span>Email</span>
-							<input
-								type="email"
-								name="email"
-								required
-								autocomplete="email"
-								bind:value={emailAddress}
-								readonly={otpProcessing}
-							/>
-						</label>
-					{:else}
-						<input type="hidden" name="email" value={emailAddress} />
-						<p class="otp-email-text">Code sent to {emailAddress}</p>
-					{/if}
-
-					{#if form?.message && !form?.token}
-						{#if !form?.otpSent}
-							<p class="error-message">{form.message}</p>
-						{/if}
-					{/if}
-
-					<button type="submit" class="primary" disabled={sendOtpDisabled} aria-busy={sendingOtp}>
-						{#if sendingOtp}
-							Sending code...
-						{:else if cooldownSecondsRemaining > 0}
-							Resend in {cooldownSecondsRemaining}s
-						{:else}
-							{otpSent || form?.otpSent ? 'Resend OTP' : 'Send code'}
-						{/if}
-					</button>
-				</form>
-
-				{#if otpSent || form?.otpSent}
-					<form method="POST" action={verifyOtpAction} use:enhance={enhanceVerifyOtp} class="form-stack verify-form">
+			{#if !gateState.onboarded}
+				<p class="warning">Complete onboarding first. Terms acceptance is required before OIDC sign-in.</p>
+			{:else if !gateState.isVerified}
+				<p class="warning">Your account is not verified yet. Ask an admin to verify your account first.</p>
+			{:else if !gateState.videoWatched}
+				<div class="dialog-panel">
+					<p class="section-label">First-time video required</p>
+					<p class="footer-text">Watch and complete the setup video before key actions are enabled.</p>
+					<video controls preload="metadata" class="setup-video">
+						<source src={data.onboardingVideoUrl} type="video/mp4" />
+						Your browser does not support video playback.
+					</video>
+					<form method="POST" action="?/markVideoWatched" use:enhance={enhanceGateAction} class="form-stack">
 						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
-						<input type="hidden" name="email" value={emailAddress || form?.email || ''} />
-						<label>
-							<span>Verification code</span>
-							<input
-								type="text"
-								name="token"
-								required
-								inputmode="numeric"
-								autocomplete="one-time-code"
-								maxlength="6"
-								placeholder="123456"
-								readonly={verifyingOtp}
-								bind:value={otpCode}
-							/>
-						</label>
-						{#if form?.message && form?.token}
-							<p class="error-message">{form.message}</p>
-						{:else if form?.message}
-							<p class="success-message">{form.message}</p>
-						{:else}
-							<p class="success-message">Enter the 6-digit code from your email to finish sign in.</p>
-						{/if}
-						<button type="submit" class="primary" disabled={loading || verifyingOtp} aria-busy={verifyingOtp}>
-							{verifyingOtp ? 'Verifying...' : 'Verify code'}
+						<button type="submit" class="primary" disabled={gateActionBusy}>
+							{gateActionBusy ? 'Updating...' : 'I watched the video'}
 						</button>
 					</form>
-				{/if}
-			</div>
-		{/if}
+				</div>
+			{/if}
 
-		{#if !data.oauthSettings.emailEnabled && data.oauthSettings.providers.length === 0}
-			<p class="warning">No authentication methods available. Please configure OAuth or email in Supabase.</p>
-		{/if}
+			{#if gateState.canManageAfterPrerequisites && !gateState.hasApiKey}
+				<div class="dialog-panel">
+					<p class="section-label">Generate API key</p>
+					<p class="footer-text">No key exists yet. Generate one now to continue to consent.</p>
+					<form method="POST" action="?/generateApiKey" use:enhance={enhanceGateAction} class="form-stack">
+						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
+						<button type="submit" class="primary" disabled={gateActionBusy}>
+							{gateActionBusy ? 'Generating...' : 'Generate API key'}
+						</button>
+					</form>
 
-		<p class="footer-text">All authentication methods are configured through Supabase.</p>
+					{#if generatedApiKey}
+						<div class="key-once">
+							<p class="section-label">Shown once</p>
+							<code>{generatedApiKey}</code>
+							<div class="inline-actions">
+								<button type="button" class="secondary-btn" onclick={copyGeneratedKey}>
+									{copied ? 'Copied' : 'Copy key'}
+								</button>
+								<button type="button" class="secondary-btn" onclick={dismissGeneratedKey}>Hide</button>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			{#if gateState.canManageAfterPrerequisites && gateState.hasApiKey && gateState.apiKeyDisabled}
+				<div class="dialog-panel">
+					<p class="section-label">API key disabled</p>
+					<p class="footer-text">Your key is currently disabled. Enable it to continue with OIDC login.</p>
+					<form method="POST" action="?/enableApiKey" use:enhance={enhanceGateAction} class="form-stack">
+						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
+						<button type="submit" class="primary" disabled={gateActionBusy}>
+							{gateActionBusy ? 'Enabling...' : 'Enable API key'}
+						</button>
+					</form>
+				</div>
+			{/if}
+
+			{#if gateState.canProceedToOidc}
+				<div class="dialog-panel">
+					<p class="section-label">Ready</p>
+					<p class="footer-text">Your API key is active. Continue to the consent screen.</p>
+					<button type="button" class="primary" onclick={goToConsent}>Continue to consent</button>
+				</div>
+			{/if}
+		{:else}
+			<p class="eyebrow">Authentication</p>
+			<h1>Sign In</h1>
+
+			{#if pageError}
+				<p class="error-message">{pageError}</p>
+			{/if}
+
+			{#if oauthError}
+				<p class="error-message">{oauthError}</p>
+			{/if}
+
+			{#if data.oauthSettings.providers.length > 0}
+				<div class="oauth-section">
+					<p class="section-label">Sign in with</p>
+					<div class="oauth-buttons">
+						{#each data.oauthSettings.providers as provider (provider)}
+							<button
+								type="button"
+								class="oauth-btn"
+								onclick={() => handleOAuthLogin(provider)}
+								disabled={loading}
+								title={getProviderDisplayName(provider)}
+							>
+								{#if getProviderLogoPath(provider)}
+									<img src={getProviderLogoPath(provider)} alt={getProviderDisplayName(provider)} />
+								{:else}
+									<span class="provider-icon">{getProviderDisplayName(provider).charAt(0)}</span>
+								{/if}
+								<span class="provider-name">{getProviderDisplayName(provider)}</span>
+							</button>
+						{/each}
+					</div>
+					{#if data.oauthSettings.emailEnabled}
+						<div class="divider">or</div>
+					{/if}
+				</div>
+			{/if}
+
+			{#if data.oauthSettings.emailEnabled}
+				<div class="email-section">
+					{#if otpProcessing}
+						<div class="processing-indicator" role="status" aria-live="polite">
+							<span class="spinner" aria-hidden="true"></span>
+							<span>{sendingOtp ? 'Sending your code...' : 'Verifying your code...'}</span>
+						</div>
+					{/if}
+
+					<form method="POST" action={sendOtpAction} use:enhance={enhanceSendOtp} class="form-stack">
+						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
+						{#if !otpSent}
+							<label>
+								<span>Email</span>
+								<input
+									type="email"
+									name="email"
+									required
+									autocomplete="email"
+									bind:value={emailAddress}
+									readonly={otpProcessing}
+								/>
+							</label>
+						{:else}
+							<input type="hidden" name="email" value={emailAddress} />
+							<p class="otp-email-text">Code sent to {emailAddress}</p>
+						{/if}
+
+						{#if form?.message && !form?.token}
+							{#if !form?.otpSent}
+								<p class="error-message">{form.message}</p>
+							{/if}
+						{/if}
+
+						<button type="submit" class="primary" disabled={sendOtpDisabled} aria-busy={sendingOtp}>
+							{#if sendingOtp}
+								Sending code...
+							{:else if cooldownSecondsRemaining > 0}
+								Resend in {cooldownSecondsRemaining}s
+							{:else}
+								{otpSent || form?.otpSent ? 'Resend OTP' : 'Send code'}
+							{/if}
+						</button>
+					</form>
+
+					{#if otpSent || form?.otpSent}
+						<form method="POST" action={verifyOtpAction} use:enhance={enhanceVerifyOtp} class="form-stack verify-form">
+							<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
+							<input type="hidden" name="email" value={emailAddress || form?.email || ''} />
+							<label>
+								<span>Verification code</span>
+								<input
+									type="text"
+									name="token"
+									required
+									inputmode="numeric"
+									autocomplete="one-time-code"
+									maxlength="6"
+									placeholder="123456"
+									readonly={verifyingOtp}
+									bind:value={otpCode}
+								/>
+							</label>
+							{#if form?.message && form?.token}
+								<p class="error-message">{form.message}</p>
+							{:else if form?.message}
+								<p class="success-message">{form.message}</p>
+							{:else}
+								<p class="success-message">Enter the 6-digit code from your email to finish sign in.</p>
+							{/if}
+							<button type="submit" class="primary" disabled={loading || verifyingOtp} aria-busy={verifyingOtp}>
+								{verifyingOtp ? 'Verifying...' : 'Verify code'}
+							</button>
+						</form>
+					{/if}
+				</div>
+			{/if}
+
+			{#if !data.oauthSettings.emailEnabled && data.oauthSettings.providers.length === 0}
+				<p class="warning">No authentication methods available. Please configure OAuth or email in Supabase.</p>
+			{/if}
+
+			<p class="footer-text">All authentication methods are configured through Supabase.</p>
+		{/if}
 	</section>
 </main>
 
@@ -545,5 +677,62 @@
 		font-size: 0.85rem;
 		margin-top: 1.5rem;
 		text-align: center;
+	}
+
+	.dialog-panel {
+		display: grid;
+		gap: 0.75rem;
+		padding: 0.95rem;
+		border-radius: 0.5rem;
+		border: 1px solid #334155;
+		background: #101822;
+		margin-bottom: 1rem;
+	}
+
+	.setup-video {
+		width: 100%;
+		border-radius: 0.4rem;
+		border: 1px solid #334155;
+		background: #000;
+	}
+
+	.key-once {
+		display: grid;
+		gap: 0.6rem;
+		padding: 0.75rem;
+		border-radius: 0.4rem;
+		border: 1px solid #475569;
+		background: #0f172a;
+	}
+
+	.key-once code {
+		display: block;
+		padding: 0.6rem;
+		border-radius: 0.35rem;
+		background: #020617;
+		color: #e2e8f0;
+		font-size: 0.82rem;
+		overflow-x: auto;
+	}
+
+	.inline-actions {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.secondary-btn {
+		background: #1e293b;
+		color: #e2e8f0;
+		border: 1px solid #334155;
+		border-radius: 0.45rem;
+		padding: 0.55rem 0.85rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.secondary-btn:hover {
+		background: #334155;
 	}
 </style>

@@ -7,10 +7,19 @@ import {
 	getSupabaseUrl,
 	setSupabaseAccessCookie
 } from '$lib/server/supabase';
-import { BANNED_ACCOUNT_MESSAGE, isUserBanned, isUserOnboarded } from '$lib/server/account';
+import {
+	BANNED_ACCOUNT_MESSAGE,
+	enableApiKeyForOidcLogin,
+	generateApiKeyForOidcLogin,
+	getOidcApiKeyGateState,
+	isUserBanned,
+	isUserOnboarded,
+	markOnboardingVideoWatched
+} from '$lib/server/account';
 import { getOAuthSettings } from '$lib/server/oauth-settings';
 import { normalizeReturnToPath } from '$lib/server/http';
 import { getIssuer } from '$lib/server/oidc';
+import { env } from '$env/dynamic/private';
 
 const OTP_COOLDOWN_MS = 45_000;
 const otpCooldownByEmail = new Map<string, number>();
@@ -42,6 +51,15 @@ function getCookieReturnTo(valueToStore: string, existingCookieValue: string | n
 	return valueToStore;
 }
 
+function getOnboardingVideoUrl(): string {
+	const value = env.ONBOARDING_DEMO_VIDEO_URL?.trim();
+	if (!value) {
+		throw new Error('ONBOARDING_DEMO_VIDEO_URL is required.');
+	}
+
+	return value;
+}
+
 export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
 	const currentCookieReturnTo = cookies.get(AUTH_RETURN_TO_COOKIE);
 	const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
@@ -57,8 +75,10 @@ export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
 		maxAge: AUTH_RETURN_TO_MAX_AGE_SECONDS
 	});
 
-	// Redirect authenticated users to the requested target, not always dashboard.
-	if (user) {
+	const isOidcAuthorizeReturn = returnTo.startsWith('/oauth/authorize');
+
+	// Redirect authenticated users to the requested target, unless this is OIDC return that needs key gate checks.
+	if (user && !isOidcAuthorizeReturn) {
 		throw redirect(303, returnTo);
 	}
 
@@ -69,12 +89,33 @@ export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
 	const supabaseUrl = getSupabaseUrl();
 	const authOrigin = new URL(getIssuer()).origin;
 
-	return {
+	const baseData = {
 		returnTo,
 		authError,
 		oauthSettings,
 		supabaseUrl,
-		authOrigin
+		authOrigin,
+		onboardingVideoUrl: getOnboardingVideoUrl()
+	};
+
+	if (!user) {
+		return baseData;
+	}
+
+	const accessToken = getAccessTokenFromCookies(cookies);
+	if (!accessToken) {
+		throw redirect(303, '/login');
+	}
+
+	const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
+	if (oidcGate.canProceedToOidc) {
+		throw redirect(303, returnTo);
+	}
+
+	return {
+		...baseData,
+		signedIn: true,
+		oidcGate
 	};
 };
 
@@ -210,6 +251,10 @@ export const actions: Actions = {
 
 			cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
 
+			if (returnTo.startsWith('/oauth/authorize')) {
+				throw redirect(303, `/login?redirect_to=${encodeURIComponent(returnTo)}`);
+			}
+
 			throw redirect(303, returnTo);
 		} catch (err) {
 			if (isRedirect(err)) {
@@ -218,6 +263,141 @@ export const actions: Actions = {
 
 			const message = err instanceof Error ? err.message : 'Failed to verify OTP code.';
 			return fail(500, { message, returnTo, email, token });
+		}
+	},
+	markVideoWatched: async ({ locals, cookies, request, url }) => {
+		const user = locals.user;
+		if (!user) {
+			throw redirect(303, '/login');
+		}
+
+		const formData = await request.formData();
+		const returnTo = getEffectiveReturnTo(
+			String(
+				formData.get('redirect_to') ??
+					url.searchParams.get('redirect_to') ??
+					url.searchParams.get('return_to') ??
+					'/dashboard'
+			),
+			cookies.get(AUTH_RETURN_TO_COOKIE)
+		);
+
+		if (!returnTo.startsWith('/oauth/authorize')) {
+			return fail(400, { gateMessage: 'This action is only available for OIDC sign-in.', returnTo });
+		}
+
+		const accessToken = getAccessTokenFromCookies(cookies);
+		if (!accessToken) {
+			throw redirect(303, '/login');
+		}
+
+		try {
+			await markOnboardingVideoWatched(user.id, accessToken);
+			const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
+			return {
+				returnTo,
+				signedIn: true,
+				oidcGate,
+				gateMessage: 'Video requirement completed.'
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to mark video as watched.';
+			return fail(400, {
+				returnTo,
+				signedIn: true,
+				gateMessage: message
+			});
+		}
+	},
+	generateApiKey: async ({ locals, cookies, request, url }) => {
+		const user = locals.user;
+		if (!user) {
+			throw redirect(303, '/login');
+		}
+
+		const formData = await request.formData();
+		const returnTo = getEffectiveReturnTo(
+			String(
+				formData.get('redirect_to') ??
+					url.searchParams.get('redirect_to') ??
+					url.searchParams.get('return_to') ??
+					'/dashboard'
+			),
+			cookies.get(AUTH_RETURN_TO_COOKIE)
+		);
+
+		if (!returnTo.startsWith('/oauth/authorize')) {
+			return fail(400, { gateMessage: 'This action is only available for OIDC sign-in.', returnTo });
+		}
+
+		const accessToken = getAccessTokenFromCookies(cookies);
+		if (!accessToken) {
+			throw redirect(303, '/login');
+		}
+
+		try {
+			const generatedApiKey = await generateApiKeyForOidcLogin(user.id, accessToken);
+			const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
+			return {
+				returnTo,
+				signedIn: true,
+				oidcGate,
+				generatedApiKey,
+				gateMessage: generatedApiKey
+					? 'API key generated. Copy it now; it will not be shown again.'
+					: 'API key already exists.'
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to generate API key.';
+			return fail(400, {
+				returnTo,
+				signedIn: true,
+				gateMessage: message
+			});
+		}
+	},
+	enableApiKey: async ({ locals, cookies, request, url }) => {
+		const user = locals.user;
+		if (!user) {
+			throw redirect(303, '/login');
+		}
+
+		const formData = await request.formData();
+		const returnTo = getEffectiveReturnTo(
+			String(
+				formData.get('redirect_to') ??
+					url.searchParams.get('redirect_to') ??
+					url.searchParams.get('return_to') ??
+					'/dashboard'
+			),
+			cookies.get(AUTH_RETURN_TO_COOKIE)
+		);
+
+		if (!returnTo.startsWith('/oauth/authorize')) {
+			return fail(400, { gateMessage: 'This action is only available for OIDC sign-in.', returnTo });
+		}
+
+		const accessToken = getAccessTokenFromCookies(cookies);
+		if (!accessToken) {
+			throw redirect(303, '/login');
+		}
+
+		try {
+			await enableApiKeyForOidcLogin(user.id, accessToken);
+			const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
+			return {
+				returnTo,
+				signedIn: true,
+				oidcGate,
+				gateMessage: 'API key enabled.'
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to enable API key.';
+			return fail(400, {
+				returnTo,
+				signedIn: true,
+				gateMessage: message
+			});
 		}
 	}
 };

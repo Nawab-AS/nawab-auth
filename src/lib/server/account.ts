@@ -1,7 +1,11 @@
 import { createSupabaseAuthedClient } from '$lib/server/supabase';
 import type { SupabaseSessionUser } from '$lib/server/supabase';
 import type { DashboardSnapshot } from '$lib/server/oidc';
-import { getOpenRouterUsage } from '$lib/server/openrouter';
+import {
+	createOpenRouterApiKey,
+	deleteOpenRouterApiKey,
+	getOpenRouterUsage
+} from '$lib/server/openrouter';
 import { env } from '$env/dynamic/private';
 
 export const BANNED_ACCOUNT_MESSAGE = `Your account is banned. Please contact support to appeal this ban: ${env.SUPPORT_EMAIL?.trim() || 'support@example.com'}`;
@@ -66,6 +70,17 @@ interface UserSsoState {
 	videoWatched: boolean;
 }
 
+export interface OidcApiKeyGateState {
+	isVerified: boolean;
+	onboarded: boolean;
+	firstSsoCompleted: boolean;
+	videoWatched: boolean;
+	hasApiKey: boolean;
+	apiKeyDisabled: boolean;
+	canProceedToOidc: boolean;
+	canManageAfterPrerequisites: boolean;
+}
+
 interface CompleteOnboardingInput {
 	user: SupabaseSessionUser;
 	accessToken: string;
@@ -105,10 +120,6 @@ function isApiKeyAssigned(
 	}
 
 	return Boolean(apiKeySecret && apiKeySecret.trim().length > 0);
-}
-
-function generateApiKeyValue() {
-	return `nawab_${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
 function computeProvisionedUsageLimit(allowedUsageUsd: number, carriedForwardUsd: number): number {
@@ -195,6 +206,69 @@ export async function getUserSsoState(userId: string, accessToken: string): Prom
 		isVerified: isUserStateVerified(userState),
 		firstSsoCompleted: Boolean(data?.first_sso_completed),
 		videoWatched: Boolean(data?.onboarding_video_watched)
+	};
+}
+
+export async function getOidcApiKeyGateState(
+	userId: string,
+	accessToken: string
+): Promise<OidcApiKeyGateState> {
+	const client = createSupabaseAuthedClient(accessToken);
+	const [profileResult, accountResult] = await Promise.all([
+		client
+			.from('user_profiles')
+			.select('user_id,user_state,first_sso_completed,onboarding_video_watched')
+			.eq('user_id', userId)
+			.maybeSingle(),
+		client
+			.from('user_accounts')
+			.select('user_id,api_key_secret,api_key_disabled')
+			.eq('user_id', userId)
+			.maybeSingle()
+	]);
+
+	if (profileResult.error) {
+		throw new Error(profileResult.error.message);
+	}
+
+	if (accountResult.error) {
+		throw new Error(accountResult.error.message);
+	}
+
+	const profile = profileResult.data as
+		| {
+				user_id?: string;
+				user_state?: UserState;
+				first_sso_completed?: boolean;
+				onboarding_video_watched?: boolean;
+		  }
+		| null;
+	const account = accountResult.data as
+		| {
+				user_id?: string;
+				api_key_secret?: string | null;
+				api_key_disabled?: boolean | null;
+		  }
+		| null;
+
+	const userState = toUserState(profile?.user_state);
+	const isVerified = isUserStateVerified(userState);
+	const firstSsoCompleted = Boolean(profile?.first_sso_completed);
+	const videoWatched = Boolean(profile?.onboarding_video_watched) || firstSsoCompleted;
+	const hasApiKey = Boolean(account?.api_key_secret && account.api_key_secret.trim().length > 0);
+	const apiKeyDisabled = Boolean(account?.api_key_disabled);
+	const onboarded = Boolean(profile?.user_id && account?.user_id);
+	const canManageAfterPrerequisites = onboarded && videoWatched;
+
+	return {
+		isVerified,
+		onboarded,
+		firstSsoCompleted,
+		videoWatched,
+		hasApiKey,
+		apiKeyDisabled,
+		canProceedToOidc: isVerified && hasApiKey && !apiKeyDisabled,
+		canManageAfterPrerequisites
 	};
 }
 
@@ -578,24 +652,162 @@ export async function getAdminUserDetail(
 export async function rollApiKey(userId: string, accessToken: string) {
 	await ensureUserVerified(userId, accessToken);
 	await ensureUserAccountRecord(userId, accessToken);
-	const roll = await buildApiKeyRollResult(generateApiKeyValue());
 	const client = createSupabaseAuthedClient(accessToken);
+	const { data: account, error: accountError } = await client
+		.from('user_accounts')
+		.select('api_key_hash,api_key_secret,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (accountError) {
+		throw new Error(accountError.message);
+	}
+
+	const provisionedLimit = computeProvisionedUsageLimit(
+		toNumber(account?.allowed_usage_usd),
+		toNumber(account?.usage_carried_forward_usd)
+	);
+	const newKey = await createOpenRouterApiKey({
+		name: `Nawab Auth ${userId}`,
+		limit: provisionedLimit
+	});
+
+	if (!newKey) {
+		throw new Error('OpenRouter management API key is not configured.');
+	}
+
+	const roll = await buildApiKeyRollResult(newKey.keyValue);
+	const previousRemoteKeyHash = account?.api_key_hash?.trim() ?? '';
 
 	const { error } = await client
 		.from('user_accounts')
 		.update({
 			api_key_secret: roll.keyValue,
-			api_key_hash: roll.hash,
+			api_key_hash: newKey.hash,
 			api_key_fingerprint: roll.fingerprint,
+			provisioned_usage_limit_usd: provisionedLimit,
 			api_key_disabled: false
 		})
 		.eq('user_id', userId);
 
 	if (error) {
+		try {
+			await deleteOpenRouterApiKey(newKey.hash);
+		} catch (cleanupError) {
+			console.warn(`Failed to clean up rolled OpenRouter key for ${userId}:`, cleanupError);
+		}
+
 		throw new Error(error.message);
 	}
 
+	if (previousRemoteKeyHash && previousRemoteKeyHash !== newKey.hash) {
+		try {
+			await deleteOpenRouterApiKey(previousRemoteKeyHash);
+		} catch (cleanupError) {
+			console.warn(`Failed to delete previous OpenRouter key for ${userId}:`, cleanupError);
+		}
+	}
+
 	return roll.keyValue;
+}
+
+export async function generateApiKeyForOidcLogin(userId: string, accessToken: string): Promise<string | null> {
+	const gateState = await getOidcApiKeyGateState(userId, accessToken);
+	if (!gateState.onboarded) {
+		throw new Error('Complete onboarding first before generating an API key.');
+	}
+
+	if (!gateState.isVerified) {
+		throw new Error('Your account is not verified yet. An admin must verify your account first.');
+	}
+
+	if (!gateState.videoWatched) {
+		throw new Error('Watch the first-time setup video before generating an API key.');
+	}
+
+	if (gateState.hasApiKey) {
+		return null;
+	}
+
+	await ensureUserAccountRecord(userId, accessToken);
+	const client = createSupabaseAuthedClient(accessToken);
+	const { data: account, error: accountError } = await client
+		.from('user_accounts')
+		.select('allowed_usage_usd,usage_carried_forward_usd,api_key_hash')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (accountError) {
+		throw new Error(accountError.message);
+	}
+
+	const provisionedLimit = computeProvisionedUsageLimit(
+		toNumber(account?.allowed_usage_usd),
+		toNumber(account?.usage_carried_forward_usd)
+	);
+	const newKey = await createOpenRouterApiKey({
+		name: `Nawab Auth ${userId}`,
+		limit: provisionedLimit
+	});
+
+	if (!newKey) {
+		throw new Error('OpenRouter management API key is not configured.');
+	}
+
+	const roll = await buildApiKeyRollResult(newKey.keyValue);
+	const previousRemoteKeyHash = account?.api_key_hash?.trim() ?? '';
+
+	const { error } = await client
+		.from('user_accounts')
+		.update({
+			api_key_secret: roll.keyValue,
+			api_key_hash: newKey.hash,
+			api_key_fingerprint: roll.fingerprint,
+			provisioned_usage_limit_usd: provisionedLimit,
+			api_key_disabled: false
+		})
+		.eq('user_id', userId);
+
+	if (error) {
+		try {
+			await deleteOpenRouterApiKey(newKey.hash);
+		} catch (cleanupError) {
+			console.warn(`Failed to clean up generated OpenRouter key for ${userId}:`, cleanupError);
+		}
+
+		throw new Error(error.message);
+	}
+
+	if (previousRemoteKeyHash && previousRemoteKeyHash !== newKey.hash) {
+		try {
+			await deleteOpenRouterApiKey(previousRemoteKeyHash);
+		} catch (cleanupError) {
+			console.warn(`Failed to delete previous OpenRouter key for ${userId}:`, cleanupError);
+		}
+	}
+
+	return roll.keyValue;
+}
+
+export async function enableApiKeyForOidcLogin(userId: string, accessToken: string) {
+	const gateState = await getOidcApiKeyGateState(userId, accessToken);
+	if (!gateState.onboarded) {
+		throw new Error('Complete onboarding first before enabling your API key.');
+	}
+
+	if (!gateState.videoWatched) {
+		throw new Error('Watch the first-time setup video before enabling your API key.');
+	}
+
+	if (!gateState.hasApiKey) {
+		throw new Error('No API key is currently assigned. Generate one first.');
+	}
+
+	if (!gateState.apiKeyDisabled) {
+		return;
+	}
+
+	await setApiKeyDisabled(userId, accessToken, false);
 }
 
 export async function setApiKeyDisabled(userId: string, accessToken: string, disabled: boolean) {
@@ -674,7 +886,7 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 			.maybeSingle(),
 		client
 			.from('user_accounts')
-			.select('api_key_secret,allowed_usage_usd,usage_carried_forward_usd')
+			.select('api_key_hash,api_key_secret,allowed_usage_usd,usage_carried_forward_usd')
 			.eq('user_id', userId)
 			.maybeSingle()
 	]);
@@ -689,48 +901,63 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 
 	const alreadyCompleted = Boolean(profileResult.data?.first_sso_completed);
 	const existingApiKey = accountResult.data?.api_key_secret?.trim() ?? '';
-	if (alreadyCompleted && existingApiKey) {
+	const existingRemoteHash = accountResult.data?.api_key_hash?.trim() ?? '';
+	if (alreadyCompleted && existingApiKey && existingRemoteHash) {
 		return { created: false, apiKey: null };
 	}
 
-	if (existingApiKey) {
+	if (existingApiKey && existingRemoteHash) {
 		const provisionedLimit = computeProvisionedUsageLimit(
 			toNumber(accountResult.data?.allowed_usage_usd),
 			toNumber(accountResult.data?.usage_carried_forward_usd)
 		);
-		const { error: profileUpdateError } = await client
-			.from('user_profiles')
-			.update({ first_sso_completed: true })
-			.eq('user_id', userId);
 
-		const { error: accountUpdateError } = await client
-			.from('user_accounts')
-			.update({ provisioned_usage_limit_usd: provisionedLimit })
-			.eq('user_id', userId);
-
-		if (profileUpdateError) {
-			throw new Error(profileUpdateError.message);
-		}
+		const [{ error: accountUpdateError }, { error: profileUpdateError }] = await Promise.all([
+			client
+				.from('user_accounts')
+				.update({
+					provisioned_usage_limit_usd: provisionedLimit,
+					api_key_disabled: false
+				})
+				.eq('user_id', userId),
+			client
+				.from('user_profiles')
+				.update({ first_sso_completed: true })
+				.eq('user_id', userId)
+		]);
 
 		if (accountUpdateError) {
 			throw new Error(accountUpdateError.message);
 		}
 
+		if (profileUpdateError) {
+			throw new Error(profileUpdateError.message);
+		}
+
 		return { created: false, apiKey: null };
 	}
 
-	const roll = await buildApiKeyRollResult(generateApiKeyValue());
 	const provisionedLimit = computeProvisionedUsageLimit(
 		toNumber(accountResult.data?.allowed_usage_usd),
 		toNumber(accountResult.data?.usage_carried_forward_usd)
 	);
+	const newKey = await createOpenRouterApiKey({
+		name: `Nawab Auth ${userId}`,
+		limit: provisionedLimit
+	});
+
+	if (!newKey) {
+		throw new Error('OpenRouter management API key is not configured.');
+	}
+
+	const roll = await buildApiKeyRollResult(newKey.keyValue);
 
 	const [{ error: accountUpdateError }, { error: profileUpdateError }] = await Promise.all([
 		client
 			.from('user_accounts')
 			.update({
 				api_key_secret: roll.keyValue,
-				api_key_hash: roll.hash,
+				api_key_hash: newKey.hash,
 				api_key_fingerprint: roll.fingerprint,
 				provisioned_usage_limit_usd: provisionedLimit,
 				api_key_disabled: false
@@ -743,11 +970,31 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 	]);
 
 	if (accountUpdateError) {
+		try {
+			await deleteOpenRouterApiKey(newKey.hash);
+		} catch (cleanupError) {
+			console.warn(`Failed to clean up provisioned OpenRouter key for ${userId}:`, cleanupError);
+		}
+
 		throw new Error(accountUpdateError.message);
 	}
 
 	if (profileUpdateError) {
+		try {
+			await deleteOpenRouterApiKey(newKey.hash);
+		} catch (cleanupError) {
+			console.warn(`Failed to clean up provisioned OpenRouter key for ${userId}:`, cleanupError);
+		}
+
 		throw new Error(profileUpdateError.message);
+	}
+
+	if (existingRemoteHash && existingRemoteHash !== newKey.hash) {
+		try {
+			await deleteOpenRouterApiKey(existingRemoteHash);
+		} catch (cleanupError) {
+			console.warn(`Failed to delete previous OpenRouter key for ${userId}:`, cleanupError);
+		}
 	}
 
 	return { created: true, apiKey: roll.keyValue };

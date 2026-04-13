@@ -9,7 +9,7 @@ This project is intended to act as a custom Auth.js-compatible identity provider
 - Implemented: dark minimal UI shell, Supabase OTP login and OAuth provider linking, OIDC discovery/JWKS, authorization code flow with PKCE, token endpoint, userinfo endpoint, revoke endpoint, introspection endpoint.
 - Implemented: canonical user identity sourced from Supabase user ID (`sub`).
 - Implemented: verification-first account lifecycle with unified user state (`unverified`, `verified`, `admin`, `banned`).
-- Implemented: first-time SSO onboarding gate (video-required consent), automatic first-use OpenRouter key provisioning, dashboard fingerprint + usage stats, and admin usage-limit control.
+- Implemented: first-time SSO onboarding gate (video-required consent), automatic first-use OpenRouter key provisioning through OpenRouter management keys, dashboard fingerprint + usage stats, and admin usage-limit control.
 - Implemented: edge-safe verification email scaffold via HTTP mail API.
 - Not yet complete: persistent token/code/revocation storage in DB (currently in-memory runtime sets), OpenRouter API-side limit synchronization call, and one-time cleartext key reveal UX.
 
@@ -77,6 +77,14 @@ Optional for verification email delivery:
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
 
+Required for OpenRouter key provisioning and rotation:
+
+- `OPENROUTER_MANAGEMENT_API_KEY`
+
+Required for the onboarding demo video shown during key setup and OIDC consent:
+
+- `ONBOARDING_DEMO_VIDEO_URL`
+
 Recommended for stable OIDC tokens across restarts:
 
 - `OIDC_PRIVATE_JWK` (JSON string containing an RSA private JWK with `kid`)
@@ -139,10 +147,11 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 
 - User keys are stored as:
 	- secret value: `user_accounts.api_key_secret`
-	- hash: `user_accounts.api_key_hash`
+	- OpenRouter management hash: `user_accounts.api_key_hash`
 	- public identifier: `user_accounts.api_key_fingerprint`
 - First-time provisioned usage limit is tracked in `user_accounts.provisioned_usage_limit_usd`.
 - Provisioned limit is calculated from allowed usage minus carried-forward usage at first SSO approval.
+- Key provisioning and rolling use `OPENROUTER_MANAGEMENT_API_KEY` to create a real OpenRouter key, store the returned secret in `api_key_secret`, and keep the OpenRouter hash in `api_key_hash` so the previous key can be deleted on the next roll.
 - Admins can manually set per-user allowed usage in the admin dashboard.
 
 ## Security Notes
@@ -169,6 +178,8 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 - Set `ALLOWED_ORIGINS` to your client app origin(s), for example: `https://chat.example.com`.
 - If LibreChat is exchanging auth codes without a client secret, set `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=true`.
 - If verification emails are enabled, configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` in production.
+- If OpenRouter key provisioning is enabled, configure `OPENROUTER_MANAGEMENT_API_KEY` in production.
+- Configure `ONBOARDING_DEMO_VIDEO_URL` in production.
 
 ## Roadmap (Next)
 

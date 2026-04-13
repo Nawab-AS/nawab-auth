@@ -9,12 +9,23 @@ import {
 	type SupportedScope
 } from '$lib/server/oidc';
 import {
+	getOidcApiKeyGateState,
 	getUserSsoState,
 	markOnboardingVideoWatched,
 	provisionApiKeyForFirstSso,
 	getUserPreferredName
 } from '$lib/server/account';
 import { getAccessTokenFromCookies, getSupabaseUserFromCookies } from '$lib/server/supabase';
+import { env } from '$env/dynamic/private';
+
+function getOnboardingVideoUrl(): string {
+	const value = env.ONBOARDING_DEMO_VIDEO_URL?.trim();
+	if (!value) {
+		throw new Error('ONBOARDING_DEMO_VIDEO_URL is required.');
+	}
+
+	return value;
+}
 
 export const load = async ({ url, cookies }) => {
 	const clientId = url.searchParams.get('client_id')?.trim() ?? '';
@@ -53,6 +64,12 @@ export const load = async ({ url, cookies }) => {
 	}
 
 	const ssoState = await getUserSsoState(user.id, accessToken);
+	const gateState = await getOidcApiKeyGateState(user.id, accessToken);
+	if (!gateState.canProceedToOidc) {
+		throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
+	}
+
+	const onboardingVideoUrl = getOnboardingVideoUrl();
 
 	return {
 		user,
@@ -63,6 +80,7 @@ export const load = async ({ url, cookies }) => {
 		state,
 		nonce,
 		codeChallenge,
+		onboardingVideoUrl,
 		consent: buildConsentSummary({
 			clientId,
 			redirectUri,
@@ -107,6 +125,11 @@ export const actions = {
 		}
 
 		const ssoState = await getUserSsoState(user.id, accessToken);
+		const gateState = await getOidcApiKeyGateState(user.id, accessToken);
+		if (!gateState.canProceedToOidc) {
+			throw error(403, 'An active API key is required before OIDC consent can be approved.');
+		}
+
 		if (!ssoState.isVerified) {
 			throw error(403, 'Your account is not verified yet. An admin must verify your account before SSO use.');
 		}

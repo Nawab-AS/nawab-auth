@@ -43,9 +43,8 @@
 <main class="page">
 	<section class="hero">
 		<div>
-			<p class="eyebrow">Dashboard</p>
-			<h1>Your account at a glance</h1>
-			<p class="lede">Manage your key, linked providers, and available usage in one place.</p>
+			<p style="height: 25%;"></p>
+			<h2 class="eyebrow">Nawab Auth <br/> Dashboard</h2>
 		</div>
 
 		<div class="status-card">
@@ -189,22 +188,16 @@
 
 	.eyebrow {
 		text-transform: uppercase;
-		letter-spacing: 0.2em;
+		letter-spacing: 0.1em;
 		color: #f5b76a;
-		font-size: 0.78rem;
+		font-size: 2rem;
 	}
 
-	h1,
 	h2 {
 		margin: 0;
 	}
 
-	h1 {
-		font-size: clamp(1.9rem, 5vw, 2.6rem);
-		line-height: 1.1;
-	}
 
-	.lede,
 	.panel p,
 	.notice {
 		color: #cbd5e1;
