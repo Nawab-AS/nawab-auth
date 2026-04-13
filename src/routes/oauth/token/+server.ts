@@ -10,6 +10,15 @@ import {
 import { readFormOrJsonBody } from '$lib/server/http';
 import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
 
+/**
+ * Disable CSRF protection for OAuth token endpoint
+ * OAuth endpoints handle cross-origin requests intentionally
+ * and use OAuth tokens for authentication, not cookies
+ */
+export const config = {
+	csrf: false
+};
+
 function toTokenResponse(tokenSet: {
 	accessToken: string;
 	idToken: string;

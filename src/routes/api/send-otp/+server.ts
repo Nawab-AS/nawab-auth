@@ -5,6 +5,14 @@ import { getSupabaseAnonKey, getSupabaseUrl } from '$lib/server/supabase';
 const OTP_WINDOW_MS = 45_000;
 const otpRequestCooldown = new Map<string, number>();
 
+/**
+ * Disable CSRF protection for OTP endpoint
+ * This API is called from cross-origin clients and doesn't use session cookies
+ */
+export const config = {
+	csrf: false
+};
+
 function isValidEmail(email: string): boolean {
 	if (!email || email.length > 320) {
 		return false;
