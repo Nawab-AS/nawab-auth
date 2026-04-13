@@ -3,15 +3,6 @@ import { verifyAccessToken } from '$lib/server/oidc';
 import { readFormOrJsonBody } from '$lib/server/http';
 import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
 
-/**
- * Disable CSRF protection for OAuth introspect endpoint
- * OAuth endpoints handle cross-origin requests intentionally
- * and use OAuth tokens for authentication, not cookies
- */
-export const config = {
-	csrf: false
-};
-
 export const OPTIONS = async ({ request }) => {
 	const origin = request.headers.get('origin');
 	return handleCorsPreFlight(origin);

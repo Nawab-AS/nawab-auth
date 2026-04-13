@@ -18,21 +18,19 @@ export function normalizeReturnToPath(raw: string | null | undefined, fallback =
 export async function readFormOrJsonBody(request: Request): Promise<Record<string, BodyValue>> {
 	const contentType = (request.headers.get('content-type') ?? '').toLowerCase();
 
-	if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
-		return Object.fromEntries((await request.formData()).entries());
-	}
-
-	if (!contentType.includes('application/json')) {
-		return {};
-	}
-
 	try {
-		const body = await request.json();
-		if (body && typeof body === 'object' && !Array.isArray(body)) {
-			return body as Record<string, BodyValue>;
+		if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
+			return Object.fromEntries((await request.formData()).entries());
 		}
-	} catch {
-		return {};
+
+		if (contentType.includes('application/json')) {
+			const body = await request.json();
+			if (body && typeof body === 'object' && !Array.isArray(body)) {
+				return body as Record<string, BodyValue>;
+			}
+		}
+	} catch (err) {
+		console.warn('[readFormOrJsonBody] Error parsing request body:', err);
 	}
 
 	return {};

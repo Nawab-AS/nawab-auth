@@ -36,7 +36,8 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		csrf: {
-			trustedOrigins: dedupedTrustedOrigins
+			trustedOrigins: dedupedTrustedOrigins,
+			checkOrigin: false
 		}
 	}
 };
