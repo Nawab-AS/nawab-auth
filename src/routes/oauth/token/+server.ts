@@ -8,7 +8,7 @@ import {
 	verifyRefreshToken
 } from '$lib/server/oidc';
 import { readFormOrJsonBody } from '$lib/server/http';
-import { getNoStoreCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
+import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
 
 function toTokenResponse(tokenSet: {
 	accessToken: string;
@@ -40,7 +40,8 @@ export const OPTIONS = async ({ request }) => {
 export const POST = async ({ request }) => {
 	const body = await readFormOrJsonBody(request);
 	const basicAuthorization = request.headers.get('authorization') ?? '';
-	const responseHeaders = getNoStoreCorsHeaders(request.headers.get('origin'));
+	const corsHeaders = getCorsHeaders(request.headers.get('origin'));
+	const responseHeaders = { 'cache-control': 'no-store', ...corsHeaders };
 	const tokenJsonError = (error: string, errorDescription: string, status: number) =>
 		json(
 			{ error, error_description: errorDescription },

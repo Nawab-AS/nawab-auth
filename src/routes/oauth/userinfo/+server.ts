@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 import { verifyAccessToken } from '$lib/server/oidc';
 import { getSupabaseUrl } from '$lib/server/supabase';
-import { getNoStoreCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
+import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
 
 function getServiceRoleKey() {
 	return env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? '';
@@ -53,7 +53,7 @@ export const OPTIONS = async ({ request }) => {
 };
 
 export const GET = async ({ request }) => {
-	const responseHeaders = getNoStoreCorsHeaders(request.headers.get('origin'));
+	const corsHeaders = getCorsHeaders(request.headers.get('origin'));
 
 	const authorization = request.headers.get('authorization') ?? '';
 	const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
@@ -61,7 +61,7 @@ export const GET = async ({ request }) => {
 	if (!token) {
 		return json(
 			{ error: 'invalid_token', error_description: 'Missing bearer token.' },
-			{ status: 401, headers: responseHeaders }
+			{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
 		);
 	}
 
@@ -77,12 +77,12 @@ export const GET = async ({ request }) => {
 				name: preferredName ?? String(payload.name ?? ''),
 				preferred_username: String(payload.preferred_username ?? '')
 			},
-			{ headers: responseHeaders }
+			{ headers: { 'cache-control': 'no-store', ...corsHeaders } }
 		);
 	} catch (accessError) {
 		return json(
 			{ error: 'invalid_token', error_description: (accessError as Error).message },
-			{ status: 401, headers: responseHeaders }
+			{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
 		);
 	}
 };

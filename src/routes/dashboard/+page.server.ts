@@ -35,8 +35,9 @@ export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
 	const accessToken = getAccessTokenFromCookies(cookies);
 	const authReturnTo = cookies.get('auth_return_to')?.trim() ?? null;
 
-	if (accessToken && authReturnTo?.startsWith('/oauth/authorize')) {
-		throw redirect(303, authReturnTo);
+	if (authReturnTo?.startsWith('/oauth/authorize')) {
+		// Clear stale OIDC return-to hints so normal dashboard navigation is stable.
+		cookies.delete('auth_return_to', { path: '/' });
 	}
 
 	const snapshot = await buildDashboardSnapshot(user!, accessToken);

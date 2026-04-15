@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { verifyAccessToken } from '$lib/server/oidc';
 import { readFormOrJsonBody } from '$lib/server/http';
-import { getNoStoreCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
+import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
 
 export const OPTIONS = async ({ request }) => {
 	const origin = request.headers.get('origin');
@@ -9,7 +9,8 @@ export const OPTIONS = async ({ request }) => {
 };
 
 export const POST = async ({ request }) => {
-	const responseHeaders = getNoStoreCorsHeaders(request.headers.get('origin'));
+	const corsHeaders = getCorsHeaders(request.headers.get('origin'));
+	const responseHeaders = { 'cache-control': 'no-store', ...corsHeaders };
 
 	const body = await readFormOrJsonBody(request);
 
