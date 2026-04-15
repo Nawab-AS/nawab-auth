@@ -246,11 +246,9 @@
 			{:else if !gateState.isVerified}
 				<p class="warning">Your account is not verified yet. Ask an admin to verify your account first.</p>
 				{#if unverifiedReturnUrl}
-					<div class="dialog-panel">
-						<button type="button" class="secondary-btn" onclick={() => (window.location.href = unverifiedReturnUrl)}>
-							Go back
-						</button>
-					</div>
+					<button type="button" class="secondary-btn" onclick={() => (window.location.href = unverifiedReturnUrl)}>
+						Go back
+					</button>
 				{/if}
 			{/if}
 
