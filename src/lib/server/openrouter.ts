@@ -9,6 +9,7 @@ export interface OpenRouterApiKeyRecord {
 	key?: string;
 	label?: string | null;
 	name?: string;
+	usage?: number | string;
 	disabled?: boolean;
 	limit?: number;
 	limit_remaining?: number;
@@ -45,18 +46,21 @@ async function readOpenRouterApiKeyRecord(response: Response): Promise<OpenRoute
 		hash?: string;
 		label?: string;
 		name?: string;
+		usage?: number | string;
 	};
 
 	const record = (Array.isArray(data.data) ? data.data[0] : data.data ?? {}) as Partial<OpenRouterApiKeyRecord>;
 	const keyValue = data.key ?? record.key ?? '';
 	const hash = data.hash ?? record.hash ?? '';
 	const label = data.label ?? record.label ?? null;
+	const usage = data.usage ?? record.usage;
 
 	return {
 		...record,
 		key: keyValue || undefined,
 		hash,
-		label
+		label,
+		usage
 	};
 }
 
@@ -379,6 +383,31 @@ export async function setOpenRouterApiKeysLimitByName(
 	}
 
 	return updated;
+}
+
+export async function getOpenRouterApiKeyUsage(keyHash: string): Promise<number | null> {
+	const managementApiKey = getManagementApiKey();
+	const normalized = keyHash.trim();
+	if (!managementApiKey || !normalized) {
+		return null;
+	}
+
+	const response = await fetch(`https://openrouter.ai/api/v1/keys/${encodeURIComponent(normalized)}`, {
+		method: 'GET',
+		headers: getOpenRouterHeaders(managementApiKey)
+	});
+
+	if (response.status === 404) {
+		return null;
+	}
+
+	if (!response.ok) {
+		throw new Error(`OpenRouter key read failed: ${response.status} ${response.statusText}`);
+	}
+
+	const record = await readOpenRouterApiKeyRecord(response);
+	const usage = Number(record.usage ?? 0);
+	return Number.isFinite(usage) ? usage : 0;
 }
 
 /**

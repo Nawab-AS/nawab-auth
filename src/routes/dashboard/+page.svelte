@@ -148,6 +148,7 @@
 
 		<div class="panel">
 			<h2>Linked providers</h2>
+			<br/>
 			{#if data.providers.length === 0}
 				<p class="notice">No providers are available right now.</p>
 			{:else}

@@ -5,11 +5,11 @@ import {
 	createOpenRouterApiKey,
 	deleteOpenRouterApiKey,
 	deleteOpenRouterApiKeysByName,
+	getOpenRouterApiKeyUsage,
 	setOpenRouterApiKeyDisabled,
 	setOpenRouterApiKeyLimit,
 	setOpenRouterApiKeysDisabledByName,
 	setOpenRouterApiKeysLimitByName,
-	getOpenRouterUsage
 } from '$lib/server/openrouter';
 import { env } from '$env/dynamic/private';
 
@@ -31,7 +31,6 @@ interface UserProfileRow {
 interface UserAccountRow {
 	user_id?: string;
 	api_key_hash: string | null;
-	api_key_secret: string | null;
 	api_key_fingerprint: string | null;
 	allowed_usage_usd: string | number | null;
 	usage_carried_forward_usd: string | number | null;
@@ -117,14 +116,9 @@ function sanitizeAdminSearch(value: string | undefined): string | null {
 }
 
 function isApiKeyAssigned(
-	apiKeySecret: string | null | undefined,
-	apiKeyDisabled: boolean | null | undefined
+	apiKeyHash: string | null | undefined
 ): boolean {
-	if (apiKeyDisabled == null) {
-		return false;
-	}
-
-	return Boolean(apiKeySecret && apiKeySecret.trim().length > 0);
+	return Boolean(apiKeyHash && apiKeyHash.trim().length > 0);
 }
 
 function computeProvisionedUsageLimit(allowedUsageUsd: number, carriedForwardUsd: number): number {
@@ -227,7 +221,7 @@ export async function getOidcApiKeyGateState(
 			.maybeSingle(),
 		client
 			.from('user_accounts')
-			.select('user_id,api_key_secret,api_key_disabled')
+			.select('user_id,api_key_hash,api_key_disabled')
 			.eq('user_id', userId)
 			.maybeSingle()
 	]);
@@ -251,7 +245,7 @@ export async function getOidcApiKeyGateState(
 	const account = accountResult.data as
 		| {
 				user_id?: string;
-				api_key_secret?: string | null;
+				api_key_hash?: string | null;
 				api_key_disabled?: boolean | null;
 		  }
 		| null;
@@ -260,7 +254,7 @@ export async function getOidcApiKeyGateState(
 	const isVerified = isUserStateVerified(userState);
 	const firstSsoCompleted = Boolean(profile?.first_sso_completed);
 	const videoWatched = Boolean(profile?.onboarding_video_watched) || firstSsoCompleted;
-	const hasApiKey = Boolean(account?.api_key_secret && account.api_key_secret.trim().length > 0);
+	const hasApiKey = Boolean(account?.api_key_hash && account.api_key_hash.trim().length > 0);
 	const apiKeyDisabled = Boolean(account?.api_key_disabled);
 	const onboarded = Boolean(profile?.user_id && account?.user_id);
 	const canManageAfterPrerequisites = onboarded && isVerified;
@@ -332,7 +326,6 @@ async function ensureUserAccountRecord(userId: string, accessToken: string) {
 	const { error: insertError } = await client.from('user_accounts').insert({
 		user_id: userId,
 		api_key_hash: null,
-		api_key_secret: null,
 		api_key_fingerprint: null,
 		allowed_usage_usd: 0,
 		usage_carried_forward_usd: 0,
@@ -345,13 +338,13 @@ async function ensureUserAccountRecord(userId: string, accessToken: string) {
 	}
 }
 
-async function getCurrentUsageUsd(apiKeySecret: string | null | undefined, apiKeyDisabled: boolean | null | undefined): Promise<number> {
-	if (!apiKeySecret || apiKeyDisabled) {
+async function getCurrentUsageUsd(apiKeyHash: string | null | undefined): Promise<number> {
+	if (!apiKeyHash) {
 		return 0;
 	}
 
-	const usage = await getOpenRouterUsage(apiKeySecret);
-	return usage?.totalUsageUsd ?? 0;
+	const usage = await getOpenRouterApiKeyUsage(apiKeyHash);
+	return usage ?? 0;
 }
 
 export async function isUserOnboarded(userId: string, accessToken: string | null): Promise<boolean> {
@@ -446,7 +439,6 @@ export async function completeUserOnboarding(input: CompleteOnboardingInput) {
 	const accountPayload = {
 		user_id: input.user.id,
 		api_key_hash: null,
-		api_key_secret: null,
 		api_key_fingerprint: null,
 		allowed_usage_usd: 0,
 		usage_carried_forward_usd: 0,
@@ -533,7 +525,7 @@ export async function getDashboardSnapshot(
 			.maybeSingle(),
 		client
 			.from('user_accounts')
-			.select('api_key_hash,api_key_secret,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
+			.select('api_key_hash,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
 			.eq('user_id', user.id)
 			.maybeSingle()
 	]);
@@ -542,7 +534,7 @@ export async function getDashboardSnapshot(
 	const account = (accountResult.data ?? null) as UserAccountRow | null;
 
 	const userState = toUserState(profile?.user_state);
-	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_secret, account?.api_key_disabled);
+	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_hash);
 	
 	return {
 		userId: user.id,
@@ -557,7 +549,7 @@ export async function getDashboardSnapshot(
 		usageCarriedForwardUsd: toNumber(account?.usage_carried_forward_usd),
 		currentUsageUsd,
 		apiKeyFingerprint: account?.api_key_fingerprint ?? null,
-		apiKeyAssigned: isApiKeyAssigned(account?.api_key_secret, account?.api_key_disabled),
+		apiKeyAssigned: isApiKeyAssigned(account?.api_key_hash),
 		apiKeyDisabled: account?.api_key_disabled ?? false,
 		rolledKeyIds: []
 	};
@@ -596,7 +588,7 @@ export async function listAdminUsers(
 
 	const { data: accountData, error: accountError } = await client
 		.from('user_accounts')
-		.select('user_id,api_key_hash,api_key_secret,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
+		.select('user_id,api_key_hash,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
 		.in('user_id', userIds);
 
 	if (accountError) {
@@ -625,7 +617,7 @@ export async function listAdminUsers(
 			allowedUsageUsd: toNumber(account?.allowed_usage_usd),
 			usageCarriedForwardUsd: toNumber(account?.usage_carried_forward_usd),
 			apiKeyDisabled: account?.api_key_disabled ?? false,
-			apiKeyAssigned: isApiKeyAssigned(account?.api_key_secret, account?.api_key_disabled)
+			apiKeyAssigned: isApiKeyAssigned(account?.api_key_hash)
 		};
 	});
 }
@@ -643,7 +635,7 @@ export async function getAdminUserDetail(
 			.maybeSingle(),
 		client
 			.from('user_accounts')
-			.select('api_key_hash,api_key_secret,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
+			.select('api_key_hash,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
 			.eq('user_id', userId)
 			.maybeSingle()
 	]);
@@ -664,7 +656,7 @@ export async function getAdminUserDetail(
 	const account = (accountResult.data ?? null) as UserAccountRow | null;
 	const userState = toUserState(profile.user_state);
 
-	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_secret, account?.api_key_disabled);
+	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_hash);
 
 	return {
 		userId,
@@ -677,7 +669,7 @@ export async function getAdminUserDetail(
 		usageCarriedForwardUsd: toNumber(account?.usage_carried_forward_usd),
 		apiKeyFingerprint: account?.api_key_fingerprint ?? null,
 		apiKeyDisabled: account?.api_key_disabled ?? false,
-		apiKeyAssigned: isApiKeyAssigned(account?.api_key_secret, account?.api_key_disabled),
+		apiKeyAssigned: isApiKeyAssigned(account?.api_key_hash),
 		currentUsageUsd
 	};
 }
@@ -688,7 +680,7 @@ export async function rollApiKey(userId: string, accessToken: string) {
 	const client = createSupabaseAuthedClient(accessToken);
 	const { data: account, error: accountError } = await client
 		.from('user_accounts')
-		.select('api_key_hash,api_key_secret,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd')
+		.select('api_key_hash,api_key_fingerprint,api_key_disabled,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd')
 		.eq('user_id', userId)
 		.maybeSingle();
 
@@ -696,9 +688,12 @@ export async function rollApiKey(userId: string, accessToken: string) {
 		throw new Error(accountError.message);
 	}
 
+	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_hash);
+	const carriedForwardUsd = toNumber(account?.usage_carried_forward_usd) + currentUsageUsd;
+
 	const provisionedLimit = computeProvisionedUsageLimit(
 		toNumber(account?.allowed_usage_usd),
-		toNumber(account?.usage_carried_forward_usd)
+		carriedForwardUsd
 	);
 	const keyName = `Nawab Auth ${userId}`;
 	await deleteOpenRouterApiKeysByName(keyName);
@@ -717,9 +712,9 @@ export async function rollApiKey(userId: string, accessToken: string) {
 	const { error } = await client
 		.from('user_accounts')
 		.update({
-			api_key_secret: roll.keyValue,
 			api_key_hash: newKey.hash,
 			api_key_fingerprint: roll.fingerprint,
+			usage_carried_forward_usd: carriedForwardUsd,
 			provisioned_usage_limit_usd: provisionedLimit,
 			api_key_disabled: false
 		})
@@ -785,7 +780,6 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 	const { error } = await client
 		.from('user_accounts')
 		.update({
-			api_key_secret: roll.keyValue,
 			api_key_hash: newKey.hash,
 			api_key_fingerprint: roll.fingerprint,
 			provisioned_usage_limit_usd: provisionedLimit,
@@ -828,7 +822,7 @@ export async function setApiKeyDisabled(userId: string, accessToken: string, dis
 	const client = createSupabaseAuthedClient(accessToken);
 	const { data: account, error: accountError } = await client
 		.from('user_accounts')
-		.select('api_key_hash,api_key_secret')
+		.select('api_key_hash')
 		.eq('user_id', userId)
 		.maybeSingle();
 
@@ -836,7 +830,7 @@ export async function setApiKeyDisabled(userId: string, accessToken: string, dis
 		throw new Error(accountError.message);
 	}
 
-	const hasApiKey = Boolean(account?.api_key_secret?.trim());
+	const hasApiKey = Boolean(account?.api_key_hash?.trim());
 	if (hasApiKey) {
 		const keyName = `Nawab Auth ${userId}`;
 		let updatedCount = await setOpenRouterApiKeysDisabledByName(keyName, disabled);
@@ -891,7 +885,7 @@ export async function setUsageLimitUsd(userId: string, accessToken: string, allo
 	const client = createSupabaseAuthedClient(accessToken);
 	const { data: account, error: accountError } = await client
 		.from('user_accounts')
-		.select('api_key_hash,api_key_secret,usage_carried_forward_usd')
+		.select('api_key_hash,usage_carried_forward_usd')
 		.eq('user_id', userId)
 		.maybeSingle();
 
@@ -904,7 +898,7 @@ export async function setUsageLimitUsd(userId: string, accessToken: string, allo
 		toNumber(account?.usage_carried_forward_usd)
 	);
 
-	const hasApiKey = Boolean(account?.api_key_secret?.trim());
+	const hasApiKey = Boolean(account?.api_key_hash?.trim());
 	if (hasApiKey) {
 		const keyName = `Nawab Auth ${userId}`;
 		let updatedCount = await setOpenRouterApiKeysLimitByName(keyName, provisionedLimit);
@@ -962,7 +956,7 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 			.maybeSingle(),
 		client
 			.from('user_accounts')
-			.select('api_key_hash,api_key_secret,allowed_usage_usd,usage_carried_forward_usd')
+			.select('api_key_hash,allowed_usage_usd,usage_carried_forward_usd')
 			.eq('user_id', userId)
 			.maybeSingle()
 	]);
@@ -976,13 +970,12 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 	}
 
 	const alreadyCompleted = Boolean(profileResult.data?.first_sso_completed);
-	const existingApiKey = accountResult.data?.api_key_secret?.trim() ?? '';
 	const existingRemoteHash = accountResult.data?.api_key_hash?.trim() ?? '';
-	if (alreadyCompleted && existingApiKey && existingRemoteHash) {
+	if (alreadyCompleted && existingRemoteHash) {
 		return { created: false, apiKey: null };
 	}
 
-	if (existingApiKey && existingRemoteHash) {
+	if (existingRemoteHash) {
 		const provisionedLimit = computeProvisionedUsageLimit(
 			toNumber(accountResult.data?.allowed_usage_usd),
 			toNumber(accountResult.data?.usage_carried_forward_usd)
@@ -1032,7 +1025,6 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 		client
 			.from('user_accounts')
 			.update({
-				api_key_secret: roll.keyValue,
 				api_key_hash: newKey.hash,
 				api_key_fingerprint: roll.fingerprint,
 				provisioned_usage_limit_usd: provisionedLimit,
@@ -1087,7 +1079,6 @@ export async function deactivateUserAccount(userId: string, accessToken: string)
 			.from('user_accounts')
 			.update({
 				api_key_hash: null,
-				api_key_secret: null,
 				api_key_fingerprint: null,
 				api_key_disabled: true,
 				allowed_usage_usd: 0,

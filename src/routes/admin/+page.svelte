@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
@@ -231,7 +232,7 @@
 							<button
 								type="button"
 								class={`user-row ${row.userId === data.selectedUserId ? 'active' : ''}`}
-								onclick={() => goto(`/admin?user_id=${encodeURIComponent(row.userId)}`)}
+								onclick={() => goto(resolve(`/admin?user_id=${encodeURIComponent(row.userId)}`))}
 							>
 								<span class="user-topline">
 									<span class="mono">{row.userId}</span>
