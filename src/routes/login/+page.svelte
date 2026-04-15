@@ -36,6 +36,33 @@
 	let cooldownEndsAt = $state(0);
 	let now = $state(Date.now());
 
+	function buildDeniedReturnUrl(returnTo: string, authOrigin: string): string | null {
+		if (!returnTo.startsWith('/oauth/authorize')) {
+			return null;
+		}
+
+		try {
+			const authorizeUrl = new URL(returnTo, authOrigin);
+			const redirectUri = authorizeUrl.searchParams.get('redirect_uri');
+			const state = authorizeUrl.searchParams.get('state');
+
+			if (!redirectUri || !state) {
+				return null;
+			}
+
+			const clientUrl = new URL(redirectUri);
+			clientUrl.searchParams.set('error', 'access_denied');
+			clientUrl.searchParams.set('error_description', 'could_not_login_unverified_account');
+			clientUrl.searchParams.set('login_status', 'could_not_login');
+			clientUrl.searchParams.set('deny_reason', 'unverified_account');
+			clientUrl.searchParams.set('state', state);
+
+			return clientUrl.toString();
+		} catch {
+			return null;
+		}
+	}
+
 	function isGenericReturnToPath(value: string | null | undefined) {
 		return value === '/' || value === '/dashboard';
 	}
@@ -82,6 +109,7 @@
 	let gateMessage = $derived(
 		typeof form?.gateMessage === 'string' ? form.gateMessage : null
 	);
+	let unverifiedReturnUrl = $derived(buildDeniedReturnUrl(resolvedReturnTo, data.authOrigin));
 
 	const enhanceSendOtp: SubmitFunction = () => {
 		sendingOtp = true;
@@ -217,6 +245,13 @@
 				<p class="warning">Complete onboarding first. Terms acceptance is required before OIDC sign-in.</p>
 			{:else if !gateState.isVerified}
 				<p class="warning">Your account is not verified yet. Ask an admin to verify your account first.</p>
+				{#if unverifiedReturnUrl}
+					<div class="dialog-panel">
+						<button type="button" class="secondary-btn" onclick={() => (window.location.href = unverifiedReturnUrl)}>
+							Go back
+						</button>
+					</div>
+				{/if}
 			{/if}
 
 			{#if gateState.canManageAfterPrerequisites && !gateState.hasApiKey}

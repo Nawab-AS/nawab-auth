@@ -18,7 +18,6 @@ import {
 import { getOAuthSettings } from '$lib/server/oauth-settings';
 import { getErrorMessage, normalizeReturnToPath } from '$lib/server/http';
 import { getIssuer } from '$lib/server/oidc';
-import { env } from '$env/dynamic/private';
 import type { Cookies } from '@sveltejs/kit';
 
 const OTP_COOLDOWN_MS = 45_000;
