@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
+	import { onDestroy } from 'svelte';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
@@ -7,6 +11,9 @@
 
 	let query = $state('');
 	let filterMode = $state<FilterMode>('all');
+	let toastMessage = $state('');
+	let showToast = $state(false);
+	let toastTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	const normalizedQuery = $derived(query.trim().toLowerCase());
 
@@ -101,6 +108,36 @@
 
 		return 'ok';
 	}
+
+	function showSuccessToastMessage(message: string) {
+		toastMessage = message;
+		showToast = true;
+
+		if (toastTimeout) {
+			clearTimeout(toastTimeout);
+		}
+
+		toastTimeout = setTimeout(() => {
+			showToast = false;
+			toastTimeout = null;
+		}, 2600);
+	}
+
+	onDestroy(() => {
+		if (toastTimeout) {
+			clearTimeout(toastTimeout);
+		}
+	});
+
+	const enhanceAdminAction: SubmitFunction = () => {
+		return async ({ update, result }) => {
+			await update();
+
+			if (result.type === 'success' && typeof result.data?.actionMessage === 'string') {
+				showSuccessToastMessage(result.data.actionMessage);
+			}
+		};
+	};
 </script>
 
 <svelte:head>
@@ -108,23 +145,25 @@
 </svelte:head>
 
 <main class="page">
+	{#if showToast}
+		<div class="toast" role="status" aria-live="polite">{toastMessage}</div>
+	{/if}
+
 	<section class="panel shell-grid">
 		<header class="hero">
-			<div>
+			<div class="hero-copy">
 				<p class="eyebrow">Admin dashboard</p>
 				<h1>User operations</h1>
-				<p class="lede">
-					Search, triage, and act on accounts from one operational cockpit.
-				</p>
+				<p class="lede">Manage users, account state, API keys, and provider links from one workspace.</p>
 			</div>
-			<form method="GET" action="/dashboard">
+			<form method="GET" action="/dashboard" class="hero-actions">
 				<button type="submit" class="ghost-link">Back to dashboard</button>
 			</form>
 		</header>
 
 		<section class="metric-grid" aria-label="Admin metrics">
 			<article>
-				<p>Total users</p>
+				<p>Users</p>
 				<strong>{totalUsers}</strong>
 			</article>
 			<article>
@@ -145,214 +184,186 @@
 			</article>
 		</section>
 
-		<section class="toolbar" aria-label="Filters">
-			<label class="search-wrap">
-				<span>Search user, name, or email</span>
-				<input
-					type="search"
-					placeholder="Try user id or email"
-					bind:value={query}
-				/>
-			</label>
-
-			<div class="chips" role="tablist" aria-label="User filters">
-				<button
-					type="button"
-					class:active={filterMode === 'all'}
-					onclick={() => (filterMode = 'all')}
-				>
-					All
-				</button>
-				<button
-					type="button"
-					class:active={filterMode === 'admin'}
-					onclick={() => (filterMode = 'admin')}
-				>
-					Admins
-				</button>
-				<button
-					type="button"
-					class:active={filterMode === 'banned'}
-					onclick={() => (filterMode = 'banned')}
-				>
-					Banned
-				</button>
-				<button
-					type="button"
-					class:active={filterMode === 'unverified'}
-					onclick={() => (filterMode = 'unverified')}
-				>
-					Unverified
-				</button>
-				<button
-					type="button"
-					class:active={filterMode === 'no-key'}
-					onclick={() => (filterMode = 'no-key')}
-				>
-					No key
-				</button>
-			</div>
-		</section>
-
 		{#if form?.actionMessage}
 			<p class="notice">{form.actionMessage}</p>
 		{/if}
 
-		<section class="table-card" aria-label="User table">
-			<table>
-				<thead>
-					<tr>
-						<th>User</th>
-						<th>Email</th>
-						<th>Name</th>
-						<th>Flags</th>
-						<th>API key</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
+		<section class="workspace-grid">
+			<section class="users-pane" aria-label="User selection and filters">
+				<section class="toolbar" aria-label="Filters">
+					<label class="search-wrap">
+						<span>Search user, name, or email</span>
+						<input
+							type="search"
+							placeholder="Try user id or email"
+							bind:value={query}
+						/>
+					</label>
+
+					<div class="chips" role="tablist" aria-label="User filters">
+						<button type="button" class:active={filterMode === 'all'} onclick={() => (filterMode = 'all')}>
+							All
+						</button>
+						<button type="button" class:active={filterMode === 'admin'} onclick={() => (filterMode = 'admin')}>
+							Admins
+						</button>
+						<button type="button" class:active={filterMode === 'banned'} onclick={() => (filterMode = 'banned')}>
+							Banned
+						</button>
+						<button
+							type="button"
+							class:active={filterMode === 'unverified'}
+							onclick={() => (filterMode = 'unverified')}
+						>
+							Unverified
+						</button>
+						<button type="button" class:active={filterMode === 'no-key'} onclick={() => (filterMode = 'no-key')}>
+							No key
+						</button>
+					</div>
+				</section>
+
+				<section class="user-list" aria-label="Users">
 					{#if filteredUsers.length === 0}
-						<tr>
-							<td colspan="6" class="empty">No users match current filters.</td>
-						</tr>
+						<p class="empty">No users match current filters.</p>
 					{:else}
 						{#each filteredUsers as row (row.userId)}
-							<tr class:selected={row.userId === data.selectedUserId}>
-								<td class="mono">{row.userId}</td>
-								<td>{data.emailByUserId[row.userId] ?? 'No email'}</td>
-								<td>{row.preferredName ?? 'Unspecified'}</td>
-								<td>
-									<div class="flag-list">
-										<span class="flag">{row.userState}</span>
-										{#if row.isAdmin}
-											<span class="flag flag-admin">Admin</span>
-										{/if}
-										{#if row.banned}
-											<span class="flag flag-ban">Banned</span>
-										{/if}
-										{#if row.userState === 'unverified'}
-											<span class="flag">Needs verify</span>
-										{:else if !row.isAdmin && !row.banned}
-											<span class="flag">Standard</span>
-										{/if}
-									</div>
-								</td>
-								<td><span class="key-pill">{getApiKeyState(row.apiKeyAssigned, row.apiKeyDisabled)}</span></td>
-								<td>
-									<form method="GET" action="/admin">
-										<input type="hidden" name="user_id" value={row.userId} />
-										<button type="submit" class="small-button">Open</button>
-									</form>
-								</td>
-							</tr>
+							<button
+								type="button"
+								class={`user-row ${row.userId === data.selectedUserId ? 'active' : ''}`}
+								onclick={() => goto(`/admin?user_id=${encodeURIComponent(row.userId)}`)}
+							>
+								<span class="user-topline">
+									<span class="mono">{row.userId}</span>
+									<span class="key-pill">{getApiKeyState(row.apiKeyAssigned, row.apiKeyDisabled)}</span>
+								</span>
+								<span class="user-email">{data.emailByUserId[row.userId] ?? 'No email'}</span>
+								<span class="user-name">{row.preferredName ?? 'Unspecified'}</span>
+								<span class="flag-list">
+									<span class="flag">{row.userState}</span>
+									{#if row.isAdmin && row.userState !== 'admin'}
+										<span class="flag flag-admin">Admin</span>
+									{/if}
+									{#if row.banned && row.userState !== 'banned'}
+										<span class="flag flag-ban">Banned</span>
+									{/if}
+								</span>
+							</button>
 						{/each}
 					{/if}
-				</tbody>
-			</table>
-		</section>
-
-		{#if selectedRow && data.selectedUser}
-			<section class="detail-grid">
-				<article class="detail-card user-card">
-					<h2>Selected user</h2>
-					<p class="mono">{selectedRow.userId}</p>
-					<p>{selectedEmail ?? 'No email available'}</p>
-					<p>API key: <strong>{apiKeyStateLabel}</strong></p>
-					<p>User state: <strong>{selectedRow.userState}</strong></p>
-					<div class="flag-list">
-						{#if selectedRow.isAdmin}
-							<span class="flag flag-admin">Admin</span>
-						{/if}
-						{#if selectedRow.banned}
-							<span class="flag flag-ban">Banned</span>
-						{/if}
-					</div>
-				</article>
-
-				<article class="detail-card">
-					<h2>Usage</h2>
-					<p>Allowed: ${data.selectedUser.allowedUsageUsd.toFixed(2)}</p>
-					<p>Current usage: ${data.selectedUser.currentUsageUsd.toFixed(2)}</p>
-					<p class={`usage-${getUsageTone(remainingCredits)}`}>Remaining: ${remainingCredits.toFixed(2)}</p>
-					<form method="POST" action="?/setUsageLimit">
-						<input type="hidden" name="userId" value={selectedRow.userId} />
-						<label class="search-wrap">
-							<span>Set allowed usage (USD)</span>
-							<input
-								type="number"
-								name="allowedUsageUsd"
-								min="0"
-								step="0.01"
-								value={data.selectedUser.allowedUsageUsd.toFixed(2)}
-							/>
-						</label>
-						<button type="submit" class="small-button">Save limit</button>
-					</form>
-					<form method="POST" action="?/refreshUsage">
-						<input type="hidden" name="userId" value={selectedRow.userId} />
-						<button type="submit" class="small-button">Refresh usage</button>
-					</form>
-				</article>
-
-				<article class="detail-card action-card">
-					<h2>API key controls</h2>
-					<form method="POST" action="?/rollApiKey">
-						<input type="hidden" name="userId" value={selectedRow.userId} />
-						<button type="submit">Roll API key</button>
-					</form>
-
-					<form method="POST" action="?/setApiKeyDisabled">
-						<input type="hidden" name="userId" value={selectedRow.userId} />
-						<input type="hidden" name="disabled" value={selectedRow.apiKeyDisabled ? 'false' : 'true'} />
-						<button type="submit" class="outline">
-							{selectedRow.apiKeyDisabled ? 'Enable API key' : 'Disable API key'}
-						</button>
-					</form>
-				</article>
-
-				<article class="detail-card action-card">
-					<h2>Providers</h2>
-					{#if data.selectedProviders.length === 0}
-						<p>No linked providers.</p>
-					{:else}
-						<ul class="provider-list">
-							{#each data.selectedProviders as provider (provider)}
-								<li>
-									<span>{provider}</span>
-									<form method="POST" action="?/revokeProvider">
-										<input type="hidden" name="userId" value={selectedRow.userId} />
-										<input type="hidden" name="provider" value={provider} />
-										<button type="submit" class="danger">Revoke</button>
-									</form>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</article>
-
-				<article class="detail-card action-card">
-					<h2>User state</h2>
-					<form method="POST" action="?/setUserState">
-						<input type="hidden" name="userId" value={selectedRow.userId} />
-						<label class="search-wrap">
-							<span>Set state</span>
-							<select name="userState">
-								<option value="unverified" selected={selectedRow.userState === 'unverified'}>unverified</option>
-								<option value="verified" selected={selectedRow.userState === 'verified'}>verified</option>
-								<option value="admin" selected={selectedRow.userState === 'admin'}>admin</option>
-								<option value="banned" selected={selectedRow.userState === 'banned'}>banned</option>
-							</select>
-						</label>
-						<button type="submit">Save state</button>
-					</form>
-
-					<form method="POST" action="?/deleteAccount">
-						<input type="hidden" name="userId" value={selectedRow.userId} />
-						<button type="submit" class="danger">Delete account</button>
-					</form>
-				</article>
+				</section>
 			</section>
-		{/if}
+
+			<section class="details-pane" aria-label="Selected user details">
+				{#if selectedRow && data.selectedUser}
+					<article class="detail-card user-card">
+						<h2>Selected user</h2>
+						<p class="mono">{selectedRow.userId}</p>
+						<p>{selectedEmail ?? 'No email available'}</p>
+						<p>API key: <strong>{apiKeyStateLabel}</strong></p>
+						<p>User state: <strong>{selectedRow.userState}</strong></p>
+						<div class="flag-list">
+							{#if selectedRow.isAdmin}
+								<span class="flag flag-admin">Admin</span>
+							{/if}
+							{#if selectedRow.banned}
+								<span class="flag flag-ban">Banned</span>
+							{/if}
+						</div>
+					</article>
+
+					<div class="detail-grid">
+						<article class="detail-card action-card">
+							<h2>Usage</h2>
+							<p>Allowed: ${data.selectedUser.allowedUsageUsd.toFixed(2)}</p>
+							<p>Current usage: ${data.selectedUser.currentUsageUsd.toFixed(2)}</p>
+							<p class={`usage-${getUsageTone(remainingCredits)}`}>Remaining: ${remainingCredits.toFixed(2)}</p>
+							<form method="POST" action="?/setUsageLimit" use:enhance={enhanceAdminAction}>
+								<input type="hidden" name="userId" value={selectedRow.userId} />
+								<label class="search-wrap">
+									<span>Set allowed usage (USD)</span>
+									<input
+										type="number"
+										name="allowedUsageUsd"
+										min="0"
+										step="0.01"
+										value={data.selectedUser.allowedUsageUsd.toFixed(2)}
+									/>
+								</label>
+								<button type="submit" class="small-button">Save limit</button>
+							</form>
+							<form method="POST" action="?/refreshUsage" use:enhance={enhanceAdminAction}>
+								<input type="hidden" name="userId" value={selectedRow.userId} />
+								<button type="submit" class="small-button">Refresh usage</button>
+							</form>
+						</article>
+
+						<article class="detail-card action-card">
+							<h2>API key controls</h2>
+							<form method="POST" action="?/rollApiKey" use:enhance={enhanceAdminAction}>
+								<input type="hidden" name="userId" value={selectedRow.userId} />
+								<button type="submit">Roll API key</button>
+							</form>
+
+							<form method="POST" action="?/setApiKeyDisabled" use:enhance={enhanceAdminAction}>
+								<input type="hidden" name="userId" value={selectedRow.userId} />
+								<input type="hidden" name="disabled" value={selectedRow.apiKeyDisabled ? 'false' : 'true'} />
+								<button type="submit" class="outline">
+									{selectedRow.apiKeyDisabled ? 'Enable API key' : 'Disable API key'}
+								</button>
+							</form>
+						</article>
+
+						<article class="detail-card action-card">
+							<h2>Providers</h2>
+							{#if data.selectedProviders.length === 0}
+								<p>No linked providers.</p>
+							{:else}
+								<ul class="provider-list">
+									{#each data.selectedProviders as provider (provider)}
+										<li>
+											<span>{provider}</span>
+											<form method="POST" action="?/revokeProvider" use:enhance={enhanceAdminAction}>
+												<input type="hidden" name="userId" value={selectedRow.userId} />
+												<input type="hidden" name="provider" value={provider} />
+												<button type="submit" class="danger">Revoke</button>
+											</form>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</article>
+
+						<article class="detail-card action-card">
+							<h2>User state</h2>
+							<form method="POST" action="?/setUserState" use:enhance={enhanceAdminAction}>
+								<input type="hidden" name="userId" value={selectedRow.userId} />
+								<label class="search-wrap">
+									<span>Set state</span>
+									<select name="userState">
+										<option value="unverified" selected={selectedRow.userState === 'unverified'}>unverified</option>
+										<option value="verified" selected={selectedRow.userState === 'verified'}>verified</option>
+										<option value="admin" selected={selectedRow.userState === 'admin'}>admin</option>
+										<option value="banned" selected={selectedRow.userState === 'banned'}>banned</option>
+									</select>
+								</label>
+								<button type="submit">Save state</button>
+							</form>
+
+							<form method="POST" action="?/deleteAccount" use:enhance={enhanceAdminAction}>
+								<input type="hidden" name="userId" value={selectedRow.userId} />
+								<button type="submit" class="danger">Delete account</button>
+							</form>
+						</article>
+					</div>
+				{:else}
+					<article class="detail-card empty-detail">
+						<h2>No user selected</h2>
+						<p>Select a user from the left to load account controls.</p>
+					</article>
+				{/if}
+			</section>
+		</section>
 	</section>
 </main>
 
@@ -385,10 +396,25 @@
 		margin-inline: auto;
 	}
 
+	.toast {
+		position: fixed;
+		top: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 30;
+		padding: 0.72rem 1rem;
+		border-radius: 0.6rem;
+		background: #183326;
+		border: 1px solid #2f5d46;
+		color: #d7ffe6;
+		font-weight: 700;
+		box-shadow: 0 6px 20px #000;
+	}
+
 	.panel {
 		width: 100%;
 		padding: 1.25rem;
-		border-radius: 1rem;
+		border-radius: 1.1rem;
 		border: 1px solid var(--panel-border);
 		background: var(--panel);
 	}
@@ -403,6 +429,18 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
+		padding-bottom: 0.35rem;
+		border-bottom: 1px solid #2b3038;
+	}
+
+	.hero-copy {
+		display: grid;
+		gap: 0.25rem;
+	}
+
+	.hero-actions {
+		display: flex;
+		align-items: center;
 	}
 
 	.eyebrow {
@@ -433,14 +471,14 @@
 
 	.metric-grid {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(5, minmax(0, 1fr));
 		gap: 0.7rem;
 	}
 
 	.metric-grid article {
 		padding: 0.95rem;
 		border-radius: 0.8rem;
-		background: #1a1d23;
+		background: #15181e;
 		border: 1px solid #2b3038;
 	}
 
@@ -454,13 +492,44 @@
 		display: block;
 		margin-top: 0.35rem;
 		font-size: 1.5rem;
+		letter-spacing: -0.02em;
+	}
+
+	.workspace-grid {
+		display: grid;
+		grid-template-columns: minmax(340px, 0.95fr) minmax(0, 1.45fr);
+		gap: 1rem;
+		align-items: start;
+	}
+
+	.users-pane,
+	.details-pane {
+		display: grid;
+		gap: 0.9rem;
+		align-self: start;
+	}
+
+	.details-pane {
+		align-content: start;
+	}
+
+	.user-list {
+		display: grid;
+		gap: 0.55rem;
+		max-height: 64vh;
+		overflow: auto;
+		padding-right: 0.25rem;
 	}
 
 	.toolbar {
 		display: grid;
-		grid-template-columns: 1.6fr 1fr;
+		grid-template-columns: 1fr;
 		gap: 0.9rem;
 		align-items: end;
+		padding: 1rem;
+		border-radius: 0.75rem;
+		border: 1px solid #2b3038;
+		background: #15181e;
 	}
 
 	.search-wrap {
@@ -520,51 +589,56 @@
 		margin: 0;
 		padding: 0.75rem 1rem;
 		border-radius: 0.5rem;
-		background: #15181e;
-		border: 1px solid #2b3038;
-		color: #cbd5e1;
+		background: #2f2414;
+		border: 1px solid #5d4721;
+		color: #ffe8bf;
 	}
 
-	.table-card {
-		overflow-x: hidden;
-		border-radius: 0.75rem;
-		border: 1px solid #2b3038;
-		background: #15181e;
-	}
-
-	table {
+	.user-row {
+		display: grid;
+		gap: 0.35rem;
 		width: 100%;
-		border-collapse: collapse;
-		table-layout: fixed;
-	}
-
-	thead th {
-		position: sticky;
-		top: 0;
-		background: #1a1d23;
-		z-index: 1;
-	}
-
-	th,
-	td {
-		padding: 0.72rem;
+		max-width: 100%;
+		padding: 0.82rem;
+		border-radius: 0.75rem;
+		border: 1px solid #313743;
+		background: #15181e;
+		color: var(--text);
 		text-align: left;
-		border-bottom: 1px solid #2b3038;
-		overflow-wrap: anywhere;
-		word-break: break-word;
+		overflow: hidden;
 	}
 
-	th:last-child,
-	td:last-child {
-		width: 6.2rem;
+	.user-row:hover {
+		background: #1f2530;
 	}
 
-	tbody tr.selected {
-		background: #212631;
+	.user-row.active {
+		background: #222a36;
+		border-color: #5a6c87;
 	}
 
-	tbody tr:hover {
-		background: #222732;
+	.user-topline {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.user-email {
+		font-size: 0.9rem;
+		color: #cdd6e5;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.user-name {
+		font-size: 0.84rem;
+		color: #9ca3af;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.empty {
@@ -576,6 +650,10 @@
 		font-family: var(--mono);
 		font-size: 0.85rem;
 		letter-spacing: -0.01em;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.flag-list {
@@ -611,8 +689,9 @@
 
 	.detail-grid {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 1rem;
+		align-items: start;
 	}
 
 	.detail-card {
@@ -620,10 +699,19 @@
 		border-radius: 0.75rem;
 		border: 1px solid #2b3038;
 		background: #1a1d23;
+		height: fit-content;
+		align-self: start;
 	}
 
 	.user-card {
-		grid-column: span 2;
+		display: grid;
+		gap: 0.15rem;
+	}
+
+	.empty-detail {
+		min-height: 180px;
+		align-content: center;
+		justify-items: start;
 	}
 
 	.detail-card p {
@@ -634,6 +722,11 @@
 	.action-card {
 		display: grid;
 		gap: 0.6rem;
+	}
+
+	.action-card form {
+		display: grid;
+		gap: 0.45rem;
 	}
 
 	.provider-list {
@@ -653,6 +746,14 @@
 		border-bottom: 1px dashed #3b4250;
 	}
 
+	.provider-list li > span {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.provider-list li:last-child {
 		border-bottom: 0;
 	}
@@ -664,6 +765,7 @@
 		align-items: center;
 		justify-content: center;
 		width: fit-content;
+		max-width: 100%;
 		border-radius: 0.5rem;
 		padding: 0.6rem 0.9rem;
 		font: inherit;
@@ -674,6 +776,14 @@
 		color: #111827;
 		text-decoration: none;
 		transition: 120ms ease;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.action-card button,
+	.provider-list button {
+		width: 100%;
 	}
 
 	button:hover,
@@ -723,7 +833,7 @@
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 
-		.toolbar {
+		.workspace-grid {
 			grid-template-columns: 1fr;
 		}
 
@@ -731,8 +841,8 @@
 			grid-template-columns: 1fr;
 		}
 
-		.user-card {
-			grid-column: auto;
+		.user-list {
+			max-height: 40vh;
 		}
 
 		.hero {
@@ -750,12 +860,15 @@
 			padding: 0.9rem;
 		}
 
-		table {
-			font-size: 0.85rem;
-		}
-
 		.metric-grid {
 			grid-template-columns: 1fr;
 		}
+
+		.user-row {
+			padding: 0.72rem;
+		}
+	}
+	input {
+		outline: none !important;
 	}
 </style>
