@@ -81,10 +81,6 @@ Required for OpenRouter key provisioning and rotation:
 
 - `OPENROUTER_MANAGEMENT_API_KEY`
 
-Required for the onboarding demo video shown during key setup and OIDC consent:
-
-- `ONBOARDING_DEMO_VIDEO_URL`
-
 Recommended for stable OIDC tokens across restarts:
 
 - `OIDC_PRIVATE_JWK` (JSON string containing an RSA private JWK with `kid`)
@@ -179,8 +175,7 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 - If LibreChat is exchanging auth codes without a client secret, set `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=true`.
 - If verification emails are enabled, configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` in production.
 - If OpenRouter key provisioning is enabled, configure `OPENROUTER_MANAGEMENT_API_KEY` in production.
-- Configure `ONBOARDING_DEMO_VIDEO_URL` in production.
-
+- Set the onboarding video in `/static/onboarding.mp4`
 ## Roadmap (Next)
 
 - Persist OIDC authorization codes and token revocations in Supabase.

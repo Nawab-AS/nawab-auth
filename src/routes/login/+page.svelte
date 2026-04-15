@@ -7,7 +7,6 @@
 	type LoginPageData = PageData & {
 		error?: string | null;
 		authError?: string | null;
-		onboardingVideoUrl: string;
 		signedIn?: boolean;
 		oidcGate?: {
 			isVerified: boolean;
@@ -218,21 +217,6 @@
 				<p class="warning">Complete onboarding first. Terms acceptance is required before OIDC sign-in.</p>
 			{:else if !gateState.isVerified}
 				<p class="warning">Your account is not verified yet. Ask an admin to verify your account first.</p>
-			{:else if !gateState.videoWatched}
-				<div class="dialog-panel">
-					<p class="section-label">First-time video required</p>
-					<p class="footer-text">Watch and complete the setup video before key actions are enabled.</p>
-					<video controls preload="metadata" class="setup-video">
-						<source src={data.onboardingVideoUrl} type="video/mp4" />
-						Your browser does not support video playback.
-					</video>
-					<form method="POST" action="?/markVideoWatched" use:enhance={enhanceGateAction} class="form-stack">
-						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
-						<button type="submit" class="primary" disabled={gateActionBusy}>
-							{gateActionBusy ? 'Updating...' : 'I watched the video'}
-						</button>
-					</form>
-				</div>
 			{/if}
 
 			{#if gateState.canManageAfterPrerequisites && !gateState.hasApiKey}
@@ -687,13 +671,6 @@
 		border: 1px solid #334155;
 		background: #101822;
 		margin-bottom: 1rem;
-	}
-
-	.setup-video {
-		width: 100%;
-		border-radius: 0.4rem;
-		border: 1px solid #334155;
-		background: #000;
 	}
 
 	.key-once {

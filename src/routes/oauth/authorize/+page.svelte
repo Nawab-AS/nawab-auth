@@ -38,39 +38,50 @@
 
 		{#if !data.ssoState.isVerified}
 			<p class="notice">Your account is unverified. An admin must verify your account before you can approve SSO.</p>
+			<div class="actions">
+				<form method="POST" action="?/deny">
+					<input type="hidden" name="redirect_uri" value={data.redirectUri} />
+					<input type="hidden" name="state" value={data.state} />
+					<input type="hidden" name="deny_reason" value="unverified_account" />
+					<button type="submit" class="secondary">Go back</button>
+				</form>
+			</div>
 		{:else if mustWatchVideo}
 			<div class="share-card">
 				<p class="share-title">First-time setup required</p>
 				<p class="share-note">Watch this setup video before approving. The API key will be automatically generated.</p>
 				<video controls preload="metadata" onended={() => (watchedInSession = true)}>
-					<source src={data.onboardingVideoUrl} type="video/mp4" />
+					<source src="/onboarding.mp4" type="video/mp4" />
 					Your browser does not support video playback.
 				</video>
 				<p class="share-note">{videoWatched ? 'Video watched. You can approve now.' : 'Watch the video first to enable approve.'}</p>
 			</div>
 		{/if}
 
-		<div class="actions">
-			<form method="POST" action="?/approve">
-				<input type="hidden" name="client_id" value={data.clientId} />
-				<input type="hidden" name="scope" value={data.scopes.join(' ')} />
-				<input type="hidden" name="nonce" value={data.nonce} />
-				<input type="hidden" name="code_challenge" value={data.codeChallenge} />
-				<input type="hidden" name="redirect_uri" value={data.redirectUri} />
-				<input type="hidden" name="state" value={data.state} />
-				<input type="hidden" name="watched_video" value={videoWatched ? 'true' : 'false'} />
-				<button type="submit" class="primary" disabled={approveDisabled}>
-					{approveDisabled && mustWatchVideo ? 'Watch the video first' : 'Approve'}
-				</button>
-			</form>
+		{#if data.ssoState.isVerified}
+			<div class="actions">
+				<form method="POST" action="?/approve">
+					<input type="hidden" name="client_id" value={data.clientId} />
+					<input type="hidden" name="scope" value={data.scopes.join(' ')} />
+					<input type="hidden" name="nonce" value={data.nonce} />
+					<input type="hidden" name="code_challenge" value={data.codeChallenge} />
+					<input type="hidden" name="redirect_uri" value={data.redirectUri} />
+					<input type="hidden" name="state" value={data.state} />
+					<input type="hidden" name="watched_video" value={videoWatched ? 'true' : 'false'} />
+					<button type="submit" class="primary" disabled={approveDisabled}>
+						{approveDisabled && mustWatchVideo ? 'Watch the video first' : 'Approve'}
+					</button>
+				</form>
 
-			<form method="POST" action="?/deny">
-				<input type="hidden" name="client_id" value={data.clientId} />
-				<input type="hidden" name="redirect_uri" value={data.redirectUri} />
-				<input type="hidden" name="state" value={data.state} />
-				<button type="submit" class="secondary">Deny</button>
-			</form>
-		</div>
+				<form method="POST" action="?/deny">
+					<input type="hidden" name="client_id" value={data.clientId} />
+					<input type="hidden" name="redirect_uri" value={data.redirectUri} />
+					<input type="hidden" name="state" value={data.state} />
+					<input type="hidden" name="deny_reason" value="user_denied" />
+					<button type="submit" class="secondary">Deny</button>
+				</form>
+			</div>
+		{/if}
 
 		{#if form}
 			<p class="notice">{form}</p>

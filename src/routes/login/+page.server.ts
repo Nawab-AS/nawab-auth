@@ -13,8 +13,7 @@ import {
 	generateApiKeyForOidcLogin,
 	getOidcApiKeyGateState,
 	isUserBanned,
-	isUserOnboarded,
-	markOnboardingVideoWatched
+	isUserOnboarded
 } from '$lib/server/account';
 import { getOAuthSettings } from '$lib/server/oauth-settings';
 import { getErrorMessage, normalizeReturnToPath } from '$lib/server/http';
@@ -100,15 +99,6 @@ function requireOidcGateActionContext(
 	};
 }
 
-function getOnboardingVideoUrl(): string {
-	const value = env.ONBOARDING_DEMO_VIDEO_URL?.trim();
-	if (!value) {
-		throw new Error('ONBOARDING_DEMO_VIDEO_URL is required.');
-	}
-
-	return value;
-}
-
 export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
 	const currentCookieReturnTo = cookies.get(AUTH_RETURN_TO_COOKIE);
 	const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
@@ -143,8 +133,7 @@ export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
 		authError,
 		oauthSettings,
 		supabaseUrl,
-		authOrigin,
-		onboardingVideoUrl: getOnboardingVideoUrl()
+		authOrigin
 	};
 
 	if (!user) {
@@ -306,33 +295,6 @@ export const actions: Actions = {
 
 			const message = err instanceof Error ? err.message : 'Failed to verify OTP code.';
 			return fail(500, { message, returnTo, email, token });
-		}
-	},
-	markVideoWatched: async ({ locals, cookies, request, url }) => {
-		const formData = await request.formData();
-		const returnTo = resolveReturnToFromForm(formData, url, cookies);
-		const context = requireOidcGateActionContext(locals, cookies, returnTo);
-		if ('error' in context) {
-			return context.error;
-		}
-
-		const { user, accessToken } = context;
-
-		try {
-			await markOnboardingVideoWatched(user.id, accessToken);
-			const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
-			return {
-				returnTo,
-				signedIn: true,
-				oidcGate,
-				gateMessage: 'Video requirement completed.'
-			};
-		} catch (error) {
-			return fail(400, {
-				returnTo,
-				signedIn: true,
-				gateMessage: getErrorMessage(error, 'Failed to mark video as watched.')
-			});
 		}
 	},
 	generateApiKey: async ({ locals, cookies, request, url }) => {

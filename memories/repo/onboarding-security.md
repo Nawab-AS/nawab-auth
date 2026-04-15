@@ -1,0 +1,2 @@
+- Do not trust client form flags for onboarding prerequisites (for example watched_video hidden inputs).
+- For first-time OIDC video gates, require server-validated proof (signed, time-gated cookie/token) before marking onboarding_video_watched.

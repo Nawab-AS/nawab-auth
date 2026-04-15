@@ -263,7 +263,7 @@ export async function getOidcApiKeyGateState(
 	const hasApiKey = Boolean(account?.api_key_secret && account.api_key_secret.trim().length > 0);
 	const apiKeyDisabled = Boolean(account?.api_key_disabled);
 	const onboarded = Boolean(profile?.user_id && account?.user_id);
-	const canManageAfterPrerequisites = onboarded && videoWatched;
+	const canManageAfterPrerequisites = onboarded && isVerified;
 
 	return {
 		isVerified,
@@ -748,10 +748,6 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 		throw new Error('Your account is not verified yet. An admin must verify your account first.');
 	}
 
-	if (!gateState.videoWatched) {
-		throw new Error('Watch the first-time setup video before generating an API key.');
-	}
-
 	if (gateState.hasApiKey) {
 		return null;
 	}
@@ -814,10 +810,6 @@ export async function enableApiKeyForOidcLogin(userId: string, accessToken: stri
 	const gateState = await getOidcApiKeyGateState(userId, accessToken);
 	if (!gateState.onboarded) {
 		throw new Error('Complete onboarding first before enabling your API key.');
-	}
-
-	if (!gateState.videoWatched) {
-		throw new Error('Watch the first-time setup video before enabling your API key.');
 	}
 
 	if (!gateState.hasApiKey) {
