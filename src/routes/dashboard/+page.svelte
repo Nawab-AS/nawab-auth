@@ -2,6 +2,10 @@
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
+	let dismissRolledKeyDialog = $state(false);
+	let copyStatus = $state<'idle' | 'copied' | 'error'>('idle');
+	const rolledKey = $derived(form?.rolledKey ?? '');
+	const showRolledKeyDialog = $derived(rolledKey.length > 0 && !dismissRolledKeyDialog);
 
 	const remainingCredits = $derived(
 		data.allowedUsageUsd - data.usageCarriedForwardUsd - data.currentUsageUsd
@@ -34,6 +38,19 @@
 
 		return 'Banned';
 	});
+
+	async function copyRolledKey() {
+		if (!rolledKey) {
+			return;
+		}
+
+		try {
+			await navigator.clipboard.writeText(rolledKey);
+			copyStatus = 'copied';
+		} catch {
+			copyStatus = 'error';
+		}
+	}
 </script>
 
 <svelte:head>
@@ -43,7 +60,6 @@
 <main class="page">
 	<section class="hero">
 		<div>
-			<p style="height: 25%;"></p>
 			<h2 class="eyebrow">Nawab Auth <br/> Dashboard</h2>
 		</div>
 
@@ -77,11 +93,11 @@
 	<section class="metrics">
 		<article>
 			<span>Allowed usage</span>
-			<strong>${data.allowedUsageUsd.toFixed(2)}</strong>
+			<strong>${data.allowedUsageUsd.toFixed(4)}</strong>
 		</article>
 		<article>
 			<span>Remaining</span>
-			<strong>${remainingCredits.toFixed(2)}</strong>
+			<strong>${remainingCredits.toFixed(4)}</strong>
 		</article>
 		<article>
 			<span>API key</span>
@@ -162,6 +178,31 @@
 			{/if}
 		</div>
 	</section>
+
+	{#if showRolledKeyDialog}
+		<div class="api-key-overlay" role="presentation">
+			<dialog class="api-key-dialog" open aria-labelledby="rolled-key-title">
+				<h2 id="rolled-key-title">New API key generated</h2>
+				<p class="warning">Do not share your API key with anyone.</p>
+				<p class="api-key-value">{rolledKey}</p>
+				<div class="api-key-actions">
+					<button type="button" class="primary" onclick={copyRolledKey}>Copy API key</button>
+					<button
+						type="button"
+						class="secondary"
+						onclick={() => {
+							dismissRolledKeyDialog = true;
+						}}
+					>
+						Close
+					</button>
+				</div>
+				{#if copyStatus === 'error'}
+					<p class="notice">Could not copy automatically. Select and copy manually.</p>
+				{/if}
+			</dialog>
+		</div>
+	{/if}
 </main>
 
 <style>
@@ -375,10 +416,74 @@
 		margin-top: 1rem;
 	}
 
+	.api-key-overlay {
+		position: fixed;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		padding: 1rem;
+		z-index: 100;
+		overflow: auto;
+		background: rgba(15, 17, 21, 0.55);
+		backdrop-filter: blur(4px);
+		-webkit-backdrop-filter: blur(4px);
+	}
+
+	.api-key-dialog {
+		position: static;
+		inset: auto;
+		width: min(34rem, calc(100vw - 2rem));
+		max-width: 34rem;
+		border-radius: 0.75rem;
+		border: 1px solid #2b3038;
+		background: #1a1d23;
+		color: #e5e7eb;
+		padding: 1.25rem;
+		margin: 0;
+		box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+	}
+
+	.api-key-dialog h2 {
+		margin-bottom: 0.75rem;
+	}
+
+	.warning {
+		margin: 0 0 0.75rem;
+		font-weight: 700;
+		color: #f5b76a;
+	}
+
+	.api-key-value {
+		margin: 0;
+		padding: 0.85rem;
+		border-radius: 0.5rem;
+		border: 1px solid #2b3038;
+		background: #0f1115;
+		word-break: break-all;
+		font-family: 'Courier New', monospace;
+	}
+
+	.api-key-actions {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.api-key-actions .secondary {
+		margin-top: 0;
+	}
+
 	@media (max-width: 900px) {
 		.hero,
 		.panel-grid,
 		.metrics {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	@media (max-width: 520px) {
+		.api-key-actions {
 			grid-template-columns: 1fr;
 		}
 	}

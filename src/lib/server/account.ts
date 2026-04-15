@@ -4,6 +4,11 @@ import type { DashboardSnapshot } from '$lib/server/oidc';
 import {
 	createOpenRouterApiKey,
 	deleteOpenRouterApiKey,
+	deleteOpenRouterApiKeysByName,
+	setOpenRouterApiKeyDisabled,
+	setOpenRouterApiKeyLimit,
+	setOpenRouterApiKeysDisabledByName,
+	setOpenRouterApiKeysLimitByName,
 	getOpenRouterUsage
 } from '$lib/server/openrouter';
 import { env } from '$env/dynamic/private';
@@ -281,22 +286,50 @@ async function ensureUserVerified(userId: string, accessToken: string) {
 
 async function ensureUserProfileRecord(userId: string, accessToken: string) {
 	const client = createSupabaseAuthedClient(accessToken);
-	const { error } = await client.from('user_profiles').upsert({
+	const { data, error: selectError } = await client
+		.from('user_profiles')
+		.select('user_id')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (selectError) {
+		throw new Error(selectError.message);
+	}
+
+	if (data?.user_id) {
+		return;
+	}
+
+	const { error: insertError } = await client.from('user_profiles').insert({
 		user_id: userId,
 		preferred_name: null,
 		user_state: 'unverified',
 		first_sso_completed: false,
 		onboarding_video_watched: false
-	}, { onConflict: 'user_id' });
+	});
 
-	if (error) {
-		throw new Error(error.message);
+	if (insertError) {
+		throw new Error(insertError.message);
 	}
 }
 
 async function ensureUserAccountRecord(userId: string, accessToken: string) {
 	const client = createSupabaseAuthedClient(accessToken);
-	const { error } = await client.from('user_accounts').upsert({
+	const { data, error: selectError } = await client
+		.from('user_accounts')
+		.select('user_id')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (selectError) {
+		throw new Error(selectError.message);
+	}
+
+	if (data?.user_id) {
+		return;
+	}
+
+	const { error: insertError } = await client.from('user_accounts').insert({
 		user_id: userId,
 		api_key_hash: null,
 		api_key_secret: null,
@@ -305,10 +338,10 @@ async function ensureUserAccountRecord(userId: string, accessToken: string) {
 		usage_carried_forward_usd: 0,
 		provisioned_usage_limit_usd: 0,
 		api_key_disabled: false
-	}, { onConflict: 'user_id' });
+	});
 
-	if (error) {
-		throw new Error(error.message);
+	if (insertError) {
+		throw new Error(insertError.message);
 	}
 }
 
@@ -667,8 +700,11 @@ export async function rollApiKey(userId: string, accessToken: string) {
 		toNumber(account?.allowed_usage_usd),
 		toNumber(account?.usage_carried_forward_usd)
 	);
+	const keyName = `Nawab Auth ${userId}`;
+	await deleteOpenRouterApiKeysByName(keyName);
+
 	const newKey = await createOpenRouterApiKey({
-		name: `Nawab Auth ${userId}`,
+		name: keyName,
 		limit: provisionedLimit
 	});
 
@@ -677,7 +713,6 @@ export async function rollApiKey(userId: string, accessToken: string) {
 	}
 
 	const roll = await buildApiKeyRollResult(newKey.keyValue);
-	const previousRemoteKeyHash = account?.api_key_hash?.trim() ?? '';
 
 	const { error } = await client
 		.from('user_accounts')
@@ -698,14 +733,6 @@ export async function rollApiKey(userId: string, accessToken: string) {
 		}
 
 		throw new Error(error.message);
-	}
-
-	if (previousRemoteKeyHash && previousRemoteKeyHash !== newKey.hash) {
-		try {
-			await deleteOpenRouterApiKey(previousRemoteKeyHash);
-		} catch (cleanupError) {
-			console.warn(`Failed to delete previous OpenRouter key for ${userId}:`, cleanupError);
-		}
 	}
 
 	return roll.keyValue;
@@ -745,8 +772,11 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 		toNumber(account?.allowed_usage_usd),
 		toNumber(account?.usage_carried_forward_usd)
 	);
+	const keyName = `Nawab Auth ${userId}`;
+	await deleteOpenRouterApiKeysByName(keyName);
+
 	const newKey = await createOpenRouterApiKey({
-		name: `Nawab Auth ${userId}`,
+		name: keyName,
 		limit: provisionedLimit
 	});
 
@@ -755,7 +785,6 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 	}
 
 	const roll = await buildApiKeyRollResult(newKey.keyValue);
-	const previousRemoteKeyHash = account?.api_key_hash?.trim() ?? '';
 
 	const { error } = await client
 		.from('user_accounts')
@@ -776,14 +805,6 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 		}
 
 		throw new Error(error.message);
-	}
-
-	if (previousRemoteKeyHash && previousRemoteKeyHash !== newKey.hash) {
-		try {
-			await deleteOpenRouterApiKey(previousRemoteKeyHash);
-		} catch (cleanupError) {
-			console.warn(`Failed to delete previous OpenRouter key for ${userId}:`, cleanupError);
-		}
 	}
 
 	return roll.keyValue;
@@ -813,6 +834,33 @@ export async function enableApiKeyForOidcLogin(userId: string, accessToken: stri
 export async function setApiKeyDisabled(userId: string, accessToken: string, disabled: boolean) {
 	await ensureUserAccountRecord(userId, accessToken);
 	const client = createSupabaseAuthedClient(accessToken);
+	const { data: account, error: accountError } = await client
+		.from('user_accounts')
+		.select('api_key_hash,api_key_secret')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (accountError) {
+		throw new Error(accountError.message);
+	}
+
+	const hasApiKey = Boolean(account?.api_key_secret?.trim());
+	if (hasApiKey) {
+		const keyName = `Nawab Auth ${userId}`;
+		let updatedCount = await setOpenRouterApiKeysDisabledByName(keyName, disabled);
+
+		if (updatedCount === 0) {
+			const fallbackHash = account?.api_key_hash?.trim() ?? '';
+			if (fallbackHash) {
+				const didUpdate = await setOpenRouterApiKeyDisabled(fallbackHash, disabled);
+				updatedCount = didUpdate ? 1 : 0;
+			}
+		}
+
+		if (updatedCount === 0) {
+			throw new Error('No matching OpenRouter key was found to update.');
+		}
+	}
 
 	const { error } = await client
 		.from('user_accounts')
@@ -849,9 +897,45 @@ export async function setUsageLimitUsd(userId: string, accessToken: string, allo
 
 	await ensureUserAccountRecord(userId, accessToken);
 	const client = createSupabaseAuthedClient(accessToken);
+	const { data: account, error: accountError } = await client
+		.from('user_accounts')
+		.select('api_key_hash,api_key_secret,usage_carried_forward_usd')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (accountError) {
+		throw new Error(accountError.message);
+	}
+
+	const provisionedLimit = computeProvisionedUsageLimit(
+		allowedUsageUsd,
+		toNumber(account?.usage_carried_forward_usd)
+	);
+
+	const hasApiKey = Boolean(account?.api_key_secret?.trim());
+	if (hasApiKey) {
+		const keyName = `Nawab Auth ${userId}`;
+		let updatedCount = await setOpenRouterApiKeysLimitByName(keyName, provisionedLimit);
+
+		if (updatedCount === 0) {
+			const fallbackHash = account?.api_key_hash?.trim() ?? '';
+			if (fallbackHash) {
+				const didUpdate = await setOpenRouterApiKeyLimit(fallbackHash, provisionedLimit);
+				updatedCount = didUpdate ? 1 : 0;
+			}
+		}
+
+		if (updatedCount === 0) {
+			throw new Error('No matching OpenRouter key was found to update limit.');
+		}
+	}
+
 	const { error } = await client
 		.from('user_accounts')
-		.update({ allowed_usage_usd: allowedUsageUsd })
+		.update({
+			allowed_usage_usd: allowedUsageUsd,
+			provisioned_usage_limit_usd: provisionedLimit
+		})
 		.eq('user_id', userId);
 
 	if (error) {

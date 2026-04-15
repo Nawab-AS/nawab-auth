@@ -1,0 +1,2 @@
+- OpenRouter /api/v1/auth/key `data.usage` should be treated as USD in this repo; do not divide by 100.
+- Dividing by 100 caused dashboard `Remaining` to round to $0.00 for small usage (e.g. 0.049).

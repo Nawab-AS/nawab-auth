@@ -22,6 +22,10 @@ export interface OpenRouterProvisionedKey {
 	label: string | null;
 }
 
+interface OpenRouterApiKeyListResponse {
+	data?: OpenRouterApiKeyRecord[];
+}
+
 function getManagementApiKey(): string {
 	return env.OPENROUTER_MANAGEMENT_API_KEY?.trim() ?? '';
 }
@@ -29,6 +33,7 @@ function getManagementApiKey(): string {
 function getOpenRouterHeaders(apiKey: string): HeadersInit {
 	return {
 		Authorization: `Bearer ${apiKey}`,
+		Accept: 'application/json',
 		'Content-Type': 'application/json'
 	};
 }
@@ -59,7 +64,7 @@ export async function createOpenRouterApiKey(input: {
 	name: string;
 	limit: number;
 	includeByokInLimit?: boolean;
-	limitReset?: 'daily' | 'weekly' | 'monthly' | null;
+	limitReset?: 'daily' | 'weekly' | 'monthly' | 'never' | null;
 }): Promise<OpenRouterProvisionedKey | null> {
 	const managementApiKey = getManagementApiKey();
 	if (!managementApiKey) {
@@ -67,19 +72,37 @@ export async function createOpenRouterApiKey(input: {
 		return null;
 	}
 
+	const payload: {
+		name: string;
+		limit?: number;
+		include_byok_in_limit: boolean;
+		limit_reset?: 'daily' | 'weekly' | 'monthly';
+	} = {
+		name: input.name,
+		// Enforced global behavior: always count BYOK usage in limits.
+		include_byok_in_limit: true
+	};
+
+	if (Number.isFinite(input.limit) && input.limit > 0) {
+		payload.limit = input.limit;
+	}
+
 	const response = await fetch('https://openrouter.ai/api/v1/keys', {
 		method: 'POST',
 		headers: getOpenRouterHeaders(managementApiKey),
-		body: JSON.stringify({
-			name: input.name,
-			limit: input.limit,
-			include_byok_in_limit: input.includeByokInLimit ?? false,
-			limit_reset: input.limitReset ?? null
-		})
+		body: JSON.stringify(payload)
 	});
 
 	if (!response.ok) {
-		throw new Error(`OpenRouter key creation failed: ${response.status} ${response.statusText}`);
+		let details = '';
+		try {
+			const body = await response.text();
+			details = body ? ` - ${body}` : '';
+		} catch {
+			details = '';
+		}
+
+		throw new Error(`OpenRouter key creation failed: ${response.status} ${response.statusText}${details}`);
 	}
 
 	const record = await readOpenRouterApiKeyRecord(response);
@@ -102,16 +125,254 @@ export async function deleteOpenRouterApiKey(keyHash: string): Promise<boolean> 
 		return false;
 	}
 
+	const readResponse = await fetch(`https://openrouter.ai/api/v1/keys/${encodeURIComponent(keyHash)}`, {
+		method: 'GET',
+		headers: getOpenRouterHeaders(managementApiKey)
+	});
+
+	if (readResponse.status === 404) {
+		return false;
+	}
+
+	if (!readResponse.ok) {
+		throw new Error(`OpenRouter key read failed: ${readResponse.status} ${readResponse.statusText}`);
+	}
+
+	const readPayload = (await readResponse.json()) as {
+		data?: {
+			disabled?: boolean;
+		};
+	};
+
+	if (readPayload.data?.disabled === true) {
+		const enabled = await setOpenRouterApiKeyDisabled(keyHash, false);
+		if (!enabled) {
+			throw new Error('OpenRouter key must be enabled before deletion, but enabling failed.');
+		}
+	}
+
 	const response = await fetch(`https://openrouter.ai/api/v1/keys/${encodeURIComponent(keyHash)}`, {
 		method: 'DELETE',
 		headers: getOpenRouterHeaders(managementApiKey)
 	});
 
 	if (!response.ok) {
+		if (response.status === 404) {
+			return false;
+		}
+
 		throw new Error(`OpenRouter key deletion failed: ${response.status} ${response.statusText}`);
 	}
 
 	return true;
+}
+
+export async function deleteOpenRouterApiKeysByName(name: string): Promise<number> {
+	const managementApiKey = getManagementApiKey();
+	const normalized = name.trim();
+	if (!managementApiKey || !normalized) {
+		return 0;
+	}
+
+	const listResponse = await fetch('https://openrouter.ai/api/v1/keys', {
+		method: 'GET',
+		headers: getOpenRouterHeaders(managementApiKey)
+	});
+
+	if (!listResponse.ok) {
+		throw new Error(`OpenRouter key list failed: ${listResponse.status} ${listResponse.statusText}`);
+	}
+
+	const payload = (await listResponse.json()) as OpenRouterApiKeyListResponse;
+	const matches = (payload.data ?? []).filter((record) => record.name?.trim() === normalized);
+
+	let deleted = 0;
+	for (const record of matches) {
+		if (!record.hash) {
+			continue;
+		}
+
+		const didDelete = await deleteOpenRouterApiKey(record.hash);
+		if (didDelete) {
+			deleted += 1;
+		}
+	}
+
+	return deleted;
+}
+
+export async function setOpenRouterApiKeyDisabled(
+	keyHash: string,
+	disabled: boolean
+): Promise<boolean> {
+	const managementApiKey = getManagementApiKey();
+	if (!managementApiKey || !keyHash.trim()) {
+		return false;
+	}
+
+	const endpoint = `https://openrouter.ai/api/v1/keys/${encodeURIComponent(keyHash)}`;
+	const body = JSON.stringify({ disabled });
+
+	const response = await fetch(endpoint, {
+		method: 'PATCH',
+		headers: getOpenRouterHeaders(managementApiKey),
+		body
+	});
+
+	if (response.status === 404) {
+		return false;
+	}
+
+	let details = '';
+	try {
+		details = await response.text();
+	} catch {
+		details = '';
+	}
+
+	if (!response.ok) {
+		throw new Error(
+			`OpenRouter key update failed: ${response.status} ${response.statusText}${
+				details ? ` - ${details}` : ''
+			}`
+		);
+	}
+
+	try {
+		const payload = JSON.parse(details) as {
+			data?: {
+				disabled?: boolean;
+			};
+		};
+
+		if (typeof payload.data?.disabled === 'boolean' && payload.data.disabled !== disabled) {
+			throw new Error('OpenRouter key update did not apply the requested disabled state.');
+		}
+	} catch (parseError) {
+		if (parseError instanceof Error && parseError.message.includes('did not apply')) {
+			throw parseError;
+		}
+		// Non-JSON responses are accepted as long as the API returned success.
+	}
+
+	return true;
+}
+
+export async function setOpenRouterApiKeysDisabledByName(
+	name: string,
+	disabled: boolean
+): Promise<number> {
+	const managementApiKey = getManagementApiKey();
+	const normalized = name.trim();
+	if (!managementApiKey || !normalized) {
+		return 0;
+	}
+
+	const listResponse = await fetch('https://openrouter.ai/api/v1/keys', {
+		method: 'GET',
+		headers: getOpenRouterHeaders(managementApiKey)
+	});
+
+	if (!listResponse.ok) {
+		throw new Error(`OpenRouter key list failed: ${listResponse.status} ${listResponse.statusText}`);
+	}
+
+	const payload = (await listResponse.json()) as OpenRouterApiKeyListResponse;
+	const matches = (payload.data ?? []).filter((record) => record.name?.trim() === normalized);
+
+	let updated = 0;
+	for (const record of matches) {
+		if (!record.hash) {
+			continue;
+		}
+
+		const didUpdate = await setOpenRouterApiKeyDisabled(record.hash, disabled);
+		if (didUpdate) {
+			updated += 1;
+		}
+	}
+
+	return updated;
+}
+
+export async function setOpenRouterApiKeyLimit(
+	keyHash: string,
+	limit: number
+): Promise<boolean> {
+	const managementApiKey = getManagementApiKey();
+	if (!managementApiKey || !keyHash.trim()) {
+		return false;
+	}
+
+	const endpoint = `https://openrouter.ai/api/v1/keys/${encodeURIComponent(keyHash)}`;
+	const body = JSON.stringify({
+		limit,
+		include_byok_in_limit: true
+	});
+
+	const response = await fetch(endpoint, {
+		method: 'PATCH',
+		headers: getOpenRouterHeaders(managementApiKey),
+		body
+	});
+
+	if (response.status === 404) {
+		return false;
+	}
+
+	let details = '';
+	try {
+		details = await response.text();
+	} catch {
+		details = '';
+	}
+
+	if (!response.ok) {
+		throw new Error(
+			`OpenRouter key limit update failed: ${response.status} ${response.statusText}${
+				details ? ` - ${details}` : ''
+			}`
+		);
+	}
+
+	return true;
+}
+
+export async function setOpenRouterApiKeysLimitByName(
+	name: string,
+	limit: number
+): Promise<number> {
+	const managementApiKey = getManagementApiKey();
+	const normalized = name.trim();
+	if (!managementApiKey || !normalized) {
+		return 0;
+	}
+
+	const listResponse = await fetch('https://openrouter.ai/api/v1/keys', {
+		method: 'GET',
+		headers: getOpenRouterHeaders(managementApiKey)
+	});
+
+	if (!listResponse.ok) {
+		throw new Error(`OpenRouter key list failed: ${listResponse.status} ${listResponse.statusText}`);
+	}
+
+	const payload = (await listResponse.json()) as OpenRouterApiKeyListResponse;
+	const matches = (payload.data ?? []).filter((record) => record.name?.trim() === normalized);
+
+	let updated = 0;
+	for (const record of matches) {
+		if (!record.hash) {
+			continue;
+		}
+
+		const didUpdate = await setOpenRouterApiKeyLimit(record.hash, limit);
+		if (didUpdate) {
+			updated += 1;
+		}
+	}
+
+	return updated;
 }
 
 /**
@@ -139,14 +400,13 @@ export async function getOpenRouterUsage(apiKey: string): Promise<OpenRouterUsag
 
 		const data = (await response.json()) as {
 			data?: {
-				usage?: number;
+				usage?: number | string;
 				limit?: number;
 			};
 		};
 
-		// OpenRouter returns usage in cents, convert to USD
-		const usageInCents = data.data?.usage ?? 0;
-		const totalUsageUsd = usageInCents / 100;
+		const usageValue = Number(data.data?.usage ?? 0);
+		const totalUsageUsd = Number.isFinite(usageValue) ? usageValue : 0;
 
 		return {
 			totalUsageUsd

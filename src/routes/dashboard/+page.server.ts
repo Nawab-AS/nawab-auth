@@ -68,13 +68,23 @@ export const actions: Actions = {
 			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
+		let rolledKey = '';
 		try {
-			await rollApiKey(user.id, accessToken);
-			throw redirect(303, '/dashboard?rolled=1');
+			rolledKey = await rollApiKey(user.id, accessToken);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to roll API key.';
+			const message =
+				error instanceof Error
+					? error.message
+					: typeof error === 'object' && error !== null && 'message' in error
+						? String((error as { message?: unknown }).message ?? 'Failed to roll API key.')
+						: 'Failed to roll API key.';
 			return fail(400, { rollMessage: message });
 		}
+
+		return {
+			rollMessage: 'API key rolled.',
+			rolledKey
+		};
 	},
 	disableKey: async ({ locals, cookies, request }) => {
 		const user = locals.user;
@@ -96,7 +106,12 @@ export const actions: Actions = {
 				keyMessage: disabled ? 'API key disabled.' : 'API key enabled.'
 			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to update API key state.';
+			const message =
+				error instanceof Error
+					? error.message
+					: typeof error === 'object' && error !== null && 'message' in error
+						? String((error as { message?: unknown }).message ?? 'Failed to update API key state.')
+						: 'Failed to update API key state.';
 			return fail(400, { keyMessage: message });
 		}
 	},
