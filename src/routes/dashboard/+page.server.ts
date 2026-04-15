@@ -68,9 +68,12 @@ export const actions: Actions = {
 			throw redirect(303, '/login?redirect_to=%2Fdashboard');
 		}
 
-		let rolledKey = '';
 		try {
-			rolledKey = await rollApiKey(user.id, accessToken);
+			const rolledKey = await rollApiKey(user.id, accessToken);
+			return {
+				rollMessage: 'API key rolled.',
+				rolledKey
+			};
 		} catch (error) {
 			const message =
 				error instanceof Error
@@ -80,11 +83,6 @@ export const actions: Actions = {
 						: 'Failed to roll API key.';
 			return fail(400, { rollMessage: message });
 		}
-
-		return {
-			rollMessage: 'API key rolled.',
-			rolledKey
-		};
 	},
 	disableKey: async ({ locals, cookies, request }) => {
 		const user = locals.user;

@@ -94,15 +94,19 @@ export async function createOpenRouterApiKey(input: {
 	});
 
 	if (!response.ok) {
-		let details = '';
+		let details: string | undefined;
 		try {
 			const body = await response.text();
-			details = body ? ` - ${body}` : '';
+			if (body) {
+				details = ` - ${body}`;
+			}
 		} catch {
-			details = '';
+			// Ignore response body parse errors for failed requests.
 		}
 
-		throw new Error(`OpenRouter key creation failed: ${response.status} ${response.statusText}${details}`);
+		throw new Error(
+			`OpenRouter key creation failed: ${response.status} ${response.statusText}${details ?? ''}`
+		);
 	}
 
 	const record = await readOpenRouterApiKeyRecord(response);
@@ -223,11 +227,11 @@ export async function setOpenRouterApiKeyDisabled(
 		return false;
 	}
 
-	let details = '';
+	let details: string | undefined;
 	try {
 		details = await response.text();
 	} catch {
-		details = '';
+		// Some failed responses may not provide a readable body.
 	}
 
 	if (!response.ok) {
@@ -239,14 +243,16 @@ export async function setOpenRouterApiKeyDisabled(
 	}
 
 	try {
-		const payload = JSON.parse(details) as {
-			data?: {
-				disabled?: boolean;
+		if (details) {
+			const payload = JSON.parse(details) as {
+				data?: {
+					disabled?: boolean;
+				};
 			};
-		};
 
-		if (typeof payload.data?.disabled === 'boolean' && payload.data.disabled !== disabled) {
-			throw new Error('OpenRouter key update did not apply the requested disabled state.');
+			if (typeof payload.data?.disabled === 'boolean' && payload.data.disabled !== disabled) {
+				throw new Error('OpenRouter key update did not apply the requested disabled state.');
+			}
 		}
 	} catch (parseError) {
 		if (parseError instanceof Error && parseError.message.includes('did not apply')) {
@@ -320,11 +326,11 @@ export async function setOpenRouterApiKeyLimit(
 		return false;
 	}
 
-	let details = '';
+	let details: string | undefined;
 	try {
 		details = await response.text();
 	} catch {
-		details = '';
+		// Some failed responses may not provide a readable body.
 	}
 
 	if (!response.ok) {
