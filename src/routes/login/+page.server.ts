@@ -17,9 +17,10 @@ import {
 	markOnboardingVideoWatched
 } from '$lib/server/account';
 import { getOAuthSettings } from '$lib/server/oauth-settings';
-import { normalizeReturnToPath } from '$lib/server/http';
+import { getErrorMessage, normalizeReturnToPath } from '$lib/server/http';
 import { getIssuer } from '$lib/server/oidc';
 import { env } from '$env/dynamic/private';
+import type { Cookies } from '@sveltejs/kit';
 
 const OTP_COOLDOWN_MS = 45_000;
 const otpCooldownByEmail = new Map<string, number>();
@@ -49,6 +50,54 @@ function getCookieReturnTo(valueToStore: string, existingCookieValue: string | n
 	}
 
 	return valueToStore;
+}
+
+function resolveReturnToFromForm(
+	formData: FormData,
+	url: URL,
+	cookies: Cookies,
+	fallback = '/dashboard'
+) {
+	return getEffectiveReturnTo(
+		String(
+			formData.get('redirect_to') ??
+				formData.get('return_to') ??
+				url.searchParams.get('redirect_to') ??
+				url.searchParams.get('return_to') ??
+				fallback
+		),
+		cookies.get(AUTH_RETURN_TO_COOKIE)
+	);
+}
+
+function requireOidcGateActionContext(
+	locals: App.Locals,
+	cookies: Cookies,
+	returnTo: string
+) {
+	const user = locals.user;
+	if (!user) {
+		throw redirect(303, '/login');
+	}
+
+	if (!returnTo.startsWith('/oauth/authorize')) {
+		return {
+			error: fail(400, {
+				gateMessage: 'This action is only available for OIDC sign-in.',
+				returnTo
+			})
+		};
+	}
+
+	const accessToken = getAccessTokenFromCookies(cookies);
+	if (!accessToken) {
+		throw redirect(303, '/login');
+	}
+
+	return {
+		user,
+		accessToken
+	};
 }
 
 function getOnboardingVideoUrl(): string {
@@ -123,13 +172,10 @@ export const actions: Actions = {
 	sendOtp: async ({ request, fetch, cookies, url }) => {
 		const formData = await request.formData();
 		const email = String(formData.get('email') ?? '').trim();
-		const returnTo = getEffectiveReturnTo(
-				String(formData.get('redirect_to') ?? formData.get('return_to') ?? url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to') ?? '/dashboard'),
-			cookies.get(AUTH_RETURN_TO_COOKIE)
-		);
+		const returnTo = resolveReturnToFromForm(formData, url, cookies);
 
 		const normalizedEmail = email.toLowerCase();
-		
+
 		if (normalizedEmail.endsWith('@hdsb.ca')) {
 			return fail(400, {
 				message: 'This email domain is not allowed',
@@ -186,10 +232,7 @@ export const actions: Actions = {
 		const formData = await request.formData();
 		const email = String(formData.get('email') ?? '').trim();
 		const token = String(formData.get('token') ?? '').trim();
-		const returnTo = getEffectiveReturnTo(
-				String(formData.get('redirect_to') ?? formData.get('return_to') ?? url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to') ?? '/dashboard'),
-			cookies.get(AUTH_RETURN_TO_COOKIE)
-		);
+		const returnTo = resolveReturnToFromForm(formData, url, cookies);
 
 		if (!email) {
 			return fail(400, { message: 'Email is required.', returnTo, email, token });
@@ -266,30 +309,14 @@ export const actions: Actions = {
 		}
 	},
 	markVideoWatched: async ({ locals, cookies, request, url }) => {
-		const user = locals.user;
-		if (!user) {
-			throw redirect(303, '/login');
-		}
-
 		const formData = await request.formData();
-		const returnTo = getEffectiveReturnTo(
-			String(
-				formData.get('redirect_to') ??
-					url.searchParams.get('redirect_to') ??
-					url.searchParams.get('return_to') ??
-					'/dashboard'
-			),
-			cookies.get(AUTH_RETURN_TO_COOKIE)
-		);
-
-		if (!returnTo.startsWith('/oauth/authorize')) {
-			return fail(400, { gateMessage: 'This action is only available for OIDC sign-in.', returnTo });
+		const returnTo = resolveReturnToFromForm(formData, url, cookies);
+		const context = requireOidcGateActionContext(locals, cookies, returnTo);
+		if ('error' in context) {
+			return context.error;
 		}
 
-		const accessToken = getAccessTokenFromCookies(cookies);
-		if (!accessToken) {
-			throw redirect(303, '/login');
-		}
+		const { user, accessToken } = context;
 
 		try {
 			await markOnboardingVideoWatched(user.id, accessToken);
@@ -301,39 +328,22 @@ export const actions: Actions = {
 				gateMessage: 'Video requirement completed.'
 			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to mark video as watched.';
 			return fail(400, {
 				returnTo,
 				signedIn: true,
-				gateMessage: message
+				gateMessage: getErrorMessage(error, 'Failed to mark video as watched.')
 			});
 		}
 	},
 	generateApiKey: async ({ locals, cookies, request, url }) => {
-		const user = locals.user;
-		if (!user) {
-			throw redirect(303, '/login');
-		}
-
 		const formData = await request.formData();
-		const returnTo = getEffectiveReturnTo(
-			String(
-				formData.get('redirect_to') ??
-					url.searchParams.get('redirect_to') ??
-					url.searchParams.get('return_to') ??
-					'/dashboard'
-			),
-			cookies.get(AUTH_RETURN_TO_COOKIE)
-		);
-
-		if (!returnTo.startsWith('/oauth/authorize')) {
-			return fail(400, { gateMessage: 'This action is only available for OIDC sign-in.', returnTo });
+		const returnTo = resolveReturnToFromForm(formData, url, cookies);
+		const context = requireOidcGateActionContext(locals, cookies, returnTo);
+		if ('error' in context) {
+			return context.error;
 		}
 
-		const accessToken = getAccessTokenFromCookies(cookies);
-		if (!accessToken) {
-			throw redirect(303, '/login');
-		}
+		const { user, accessToken } = context;
 
 		try {
 			const generatedApiKey = await generateApiKeyForOidcLogin(user.id, accessToken);
@@ -348,39 +358,22 @@ export const actions: Actions = {
 					: 'API key already exists.'
 			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to generate API key.';
 			return fail(400, {
 				returnTo,
 				signedIn: true,
-				gateMessage: message
+				gateMessage: getErrorMessage(error, 'Failed to generate API key.')
 			});
 		}
 	},
 	enableApiKey: async ({ locals, cookies, request, url }) => {
-		const user = locals.user;
-		if (!user) {
-			throw redirect(303, '/login');
-		}
-
 		const formData = await request.formData();
-		const returnTo = getEffectiveReturnTo(
-			String(
-				formData.get('redirect_to') ??
-					url.searchParams.get('redirect_to') ??
-					url.searchParams.get('return_to') ??
-					'/dashboard'
-			),
-			cookies.get(AUTH_RETURN_TO_COOKIE)
-		);
-
-		if (!returnTo.startsWith('/oauth/authorize')) {
-			return fail(400, { gateMessage: 'This action is only available for OIDC sign-in.', returnTo });
+		const returnTo = resolveReturnToFromForm(formData, url, cookies);
+		const context = requireOidcGateActionContext(locals, cookies, returnTo);
+		if ('error' in context) {
+			return context.error;
 		}
 
-		const accessToken = getAccessTokenFromCookies(cookies);
-		if (!accessToken) {
-			throw redirect(303, '/login');
-		}
+		const { user, accessToken } = context;
 
 		try {
 			await enableApiKeyForOidcLogin(user.id, accessToken);
@@ -392,11 +385,10 @@ export const actions: Actions = {
 				gateMessage: 'API key enabled.'
 			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to enable API key.';
 			return fail(400, {
 				returnTo,
 				signedIn: true,
-				gateMessage: message
+				gateMessage: getErrorMessage(error, 'Failed to enable API key.')
 			});
 		}
 	}

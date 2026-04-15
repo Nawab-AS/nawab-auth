@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { verifyAccessToken } from '$lib/server/oidc';
 import { readFormOrJsonBody } from '$lib/server/http';
-import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
+import { getNoStoreCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
 
 export const OPTIONS = async ({ request }) => {
 	const origin = request.headers.get('origin');
@@ -9,13 +9,13 @@ export const OPTIONS = async ({ request }) => {
 };
 
 export const POST = async ({ request }) => {
-	const corsHeaders = getCorsHeaders(request.headers.get('origin'));
+	const responseHeaders = getNoStoreCorsHeaders(request.headers.get('origin'));
 
 	const body = await readFormOrJsonBody(request);
 
 	const token = String(body.token ?? '').trim();
 	if (!token) {
-		return json({ active: false }, { headers: { 'cache-control': 'no-store', ...corsHeaders } });
+		return json({ active: false }, { headers: responseHeaders });
 	}
 
 	try {
@@ -33,9 +33,9 @@ export const POST = async ({ request }) => {
 				iss: payload.iss,
 				aud: payload.aud
 			},
-			{ headers: { 'cache-control': 'no-store', ...corsHeaders } }
+			{ headers: responseHeaders }
 		);
 	} catch {
-		return json({ active: false }, { headers: { 'cache-control': 'no-store', ...corsHeaders } });
+		return json({ active: false }, { headers: responseHeaders });
 	}
 };

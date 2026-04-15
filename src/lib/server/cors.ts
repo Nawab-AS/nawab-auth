@@ -64,6 +64,13 @@ export function getCorsHeaders(requestOrigin: string | null): Record<string, str
 	};
 }
 
+export function getNoStoreCorsHeaders(requestOrigin: string | null): Record<string, string> {
+	return {
+		'cache-control': 'no-store',
+		...getCorsHeaders(requestOrigin)
+	};
+}
+
 /**
  * Handle OPTIONS preflight requests for CORS
  */

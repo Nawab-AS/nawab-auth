@@ -4,7 +4,7 @@ import { createSupabaseAuthedClient, getAccessTokenFromCookies } from '$lib/serv
 import { getOAuthSettings, getProviderDisplayName } from '$lib/server/oauth-settings';
 import { getLinkedProviders, revokeLinkedProvider } from '$lib/server/providers';
 import { rollApiKey, setApiKeyDisabled } from '$lib/server/account';
-import { parseBoolean } from '$lib/server/http';
+import { getErrorMessage, parseBoolean } from '$lib/server/http';
 import type { Provider } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -12,6 +12,20 @@ interface DashboardProvider {
 	provider: string;
 	displayName: string;
 	isLinked: boolean;
+}
+
+function requireDashboardSession(locals: App.Locals, cookies: import('@sveltejs/kit').Cookies) {
+	const user = locals.user;
+	if (!user) {
+		throw redirect(303, '/login?redirect_to=%2Fdashboard');
+	}
+
+	const accessToken = getAccessTokenFromCookies(cookies);
+	if (!accessToken) {
+		throw redirect(303, '/login?redirect_to=%2Fdashboard');
+	}
+
+	return { user, accessToken };
 }
 
 export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
@@ -58,15 +72,7 @@ export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
 
 export const actions: Actions = {
 	rollKey: async ({ locals, cookies }) => {
-		const user = locals.user;
-		if (!user) {
-			throw redirect(303, '/login?redirect_to=%2Fdashboard');
-		}
-
-		const accessToken = getAccessTokenFromCookies(cookies);
-		if (!accessToken) {
-			throw redirect(303, '/login?redirect_to=%2Fdashboard');
-		}
+		const { user, accessToken } = requireDashboardSession(locals, cookies);
 
 		try {
 			const rolledKey = await rollApiKey(user.id, accessToken);
@@ -75,25 +81,11 @@ export const actions: Actions = {
 				rolledKey
 			};
 		} catch (error) {
-			const message =
-				error instanceof Error
-					? error.message
-					: typeof error === 'object' && error !== null && 'message' in error
-						? String((error as { message?: unknown }).message ?? 'Failed to roll API key.')
-						: 'Failed to roll API key.';
-			return fail(400, { rollMessage: message });
+			return fail(400, { rollMessage: getErrorMessage(error, 'Failed to roll API key.') });
 		}
 	},
 	disableKey: async ({ locals, cookies, request }) => {
-		const user = locals.user;
-		if (!user) {
-			throw redirect(303, '/login?redirect_to=%2Fdashboard');
-		}
-
-		const accessToken = getAccessTokenFromCookies(cookies);
-		if (!accessToken) {
-			throw redirect(303, '/login?redirect_to=%2Fdashboard');
-		}
+		const { user, accessToken } = requireDashboardSession(locals, cookies);
 
 		const formData = await request.formData();
 		const disabled = parseBoolean(String(formData.get('disabled') ?? 'true'), true);
@@ -104,13 +96,7 @@ export const actions: Actions = {
 				keyMessage: disabled ? 'API key disabled.' : 'API key enabled.'
 			};
 		} catch (error) {
-			const message =
-				error instanceof Error
-					? error.message
-					: typeof error === 'object' && error !== null && 'message' in error
-						? String((error as { message?: unknown }).message ?? 'Failed to update API key state.')
-						: 'Failed to update API key state.';
-			return fail(400, { keyMessage: message });
+			return fail(400, { keyMessage: getErrorMessage(error, 'Failed to update API key state.') });
 		}
 	},
 	linkProvider: async ({ request, cookies, url }) => {
@@ -169,9 +155,8 @@ export const actions: Actions = {
 				providerMessage: `${getProviderDisplayName(provider)} was revoked successfully.`
 			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to revoke provider.';
 			return fail(400, {
-				providerMessage: message
+				providerMessage: getErrorMessage(error, 'Failed to revoke provider.')
 			});
 		}
 	}

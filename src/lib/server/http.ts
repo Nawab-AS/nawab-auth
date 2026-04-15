@@ -52,3 +52,18 @@ export function parseBoolean(value: string | null | undefined, defaultValue = fa
 
 	return defaultValue;
 }
+
+export function getErrorMessage(error: unknown, fallback: string): string {
+	if (error instanceof Error && error.message.trim()) {
+		return error.message;
+	}
+
+	if (typeof error === 'object' && error !== null && 'message' in error) {
+		const value = (error as { message?: unknown }).message;
+		if (typeof value === 'string' && value.trim()) {
+			return value;
+		}
+	}
+
+	return fallback;
+}

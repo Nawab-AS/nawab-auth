@@ -8,7 +8,7 @@ import {
 	verifyRefreshToken
 } from '$lib/server/oidc';
 import { readFormOrJsonBody } from '$lib/server/http';
-import { getCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
+import { getNoStoreCorsHeaders, handleCorsPreFlight } from '$lib/server/cors';
 
 function toTokenResponse(tokenSet: {
 	accessToken: string;
@@ -40,7 +40,12 @@ export const OPTIONS = async ({ request }) => {
 export const POST = async ({ request }) => {
 	const body = await readFormOrJsonBody(request);
 	const basicAuthorization = request.headers.get('authorization') ?? '';
-	const corsHeaders = getCorsHeaders(request.headers.get('origin'));
+	const responseHeaders = getNoStoreCorsHeaders(request.headers.get('origin'));
+	const tokenJsonError = (error: string, errorDescription: string, status: number) =>
+		json(
+			{ error, error_description: errorDescription },
+			{ status, headers: responseHeaders }
+		);
 	const clientSecretConfigured = Boolean(getOidcClientSecret());
 	const clientAuthProvided = basicAuthorization.toLowerCase().startsWith('basic ')
 		|| Boolean(String(body.client_secret ?? '').trim());
@@ -59,10 +64,7 @@ export const POST = async ({ request }) => {
 				basicClientSecret = decoded.slice(separatorIndex + 1).trim();
 			}
 		} catch {
-			return json(
-				{ error: 'invalid_client', error_description: 'Malformed basic authorization credentials.' },
-				{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-			);
+			return tokenJsonError('invalid_client', 'Malformed basic authorization credentials.', 401);
 		}
 	}
 
@@ -74,24 +76,15 @@ export const POST = async ({ request }) => {
 	const providedClientSecret = basicClientSecret || bodyClientSecret;
 
 	if (clientId !== expectedClientId) {
-		return json(
-			{ error: 'invalid_client', error_description: 'Unknown client_id.' },
-			{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-		);
+		return tokenJsonError('invalid_client', 'Unknown client_id.', 401);
 	}
 
 	if (clientSecretConfigured && clientAuthProvided && providedClientSecret !== getOidcClientSecret()) {
-		return json(
-			{ error: 'invalid_client', error_description: 'Invalid client authentication.' },
-			{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-		);
+		return tokenJsonError('invalid_client', 'Invalid client authentication.', 401);
 	}
 
 	if (clientSecretConfigured && !clientAuthProvided && !allowPublicTokenClient()) {
-		return json(
-			{ error: 'invalid_client', error_description: 'Client authentication is required.' },
-			{ status: 401, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-		);
+		return tokenJsonError('invalid_client', 'Client authentication is required.', 401);
 	}
 
 	if (grantType === 'authorization_code') {
@@ -100,10 +93,7 @@ export const POST = async ({ request }) => {
 		const codeVerifier = String(body.code_verifier ?? '').trim();
 
 		if (!code || !redirectUri) {
-			return json(
-				{ error: 'invalid_request', error_description: 'code and redirect_uri are required.' },
-				{ status: 400, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-			);
+			return tokenJsonError('invalid_request', 'code and redirect_uri are required.', 400);
 		}
 
 		try {
@@ -115,38 +105,30 @@ export const POST = async ({ request }) => {
 			});
 
 			const tokenSet = await issueTokenSet({ claims, clientId });
-			return json(toTokenResponse(tokenSet), { headers: { 'cache-control': 'no-store', ...corsHeaders } });
-		} catch (tokenError) {
-			return json(
-				{ error: 'invalid_grant', error_description: (tokenError as Error).message },
-				{ status: 400, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-			);
+			return json(toTokenResponse(tokenSet), { headers: responseHeaders });
+		} catch (tokenIssueError) {
+			return tokenJsonError('invalid_grant', (tokenIssueError as Error).message, 400);
 		}
 	}
 
 	if (grantType === 'refresh_token') {
 		const refreshToken = String(body.refresh_token ?? '').trim();
 		if (!refreshToken) {
-			return json(
-				{ error: 'invalid_request', error_description: 'refresh_token is required.' },
-				{ status: 400, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-			);
+			return tokenJsonError('invalid_request', 'refresh_token is required.', 400);
 		}
 
 		try {
 			const claims = await verifyRefreshToken(refreshToken, clientId);
 			const tokenSet = await issueTokenSet({ claims, clientId });
-			return json(toTokenResponse(tokenSet), { headers: { 'cache-control': 'no-store', ...corsHeaders } });
+			return json(toTokenResponse(tokenSet), { headers: responseHeaders });
 		} catch (refreshError) {
-			return json(
-				{ error: 'invalid_grant', error_description: (refreshError as Error).message },
-				{ status: 400, headers: { 'cache-control': 'no-store', ...corsHeaders } }
-			);
+			return tokenJsonError('invalid_grant', (refreshError as Error).message, 400);
 		}
 	}
 
-	return json(
-		{ error: 'unsupported_grant_type', error_description: 'Supported grant types: authorization_code, refresh_token' },
-		{ status: 400, headers: { 'cache-control': 'no-store', ...corsHeaders } }
+	return tokenJsonError(
+		'unsupported_grant_type',
+		'Supported grant types: authorization_code, refresh_token',
+		400
 	);
 };
