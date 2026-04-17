@@ -1,5 +1,5 @@
-import { createSupabaseAuthedClient } from '$lib/server/supabase';
-import type { SupabaseSessionUser } from '$lib/server/supabase';
+import { createClient } from '@supabase/supabase-js';
+import { env } from '$env/dynamic/private';
 import type { DashboardSnapshot } from '$lib/server/oidc';
 import {
 	createOpenRouterApiKey,
@@ -10,8 +10,9 @@ import {
 	setOpenRouterApiKeyLimit,
 	setOpenRouterApiKeysDisabledByName,
 	setOpenRouterApiKeysLimitByName,
-} from '$lib/server/openrouter';
-import { env } from '$env/dynamic/private';
+	} from '$lib/server/openrouter';
+import type { SupabaseSessionUser } from '$lib/server/supabase';
+import { createSupabaseAuthedClient, getSupabaseUrl } from '$lib/server/supabase';
 
 export const BANNED_ACCOUNT_MESSAGE = `Your account is banned. Please contact support to appeal this ban: ${env.SUPPORT_EMAIL?.trim() || 'support@example.com'}`;
 
@@ -19,6 +20,25 @@ export const USER_STATES = ['unverified', 'verified', 'admin', 'banned'] as cons
 export type UserState = (typeof USER_STATES)[number];
 
 const textEncoder = new TextEncoder();
+
+function getServiceRoleKey() {
+	return env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? '';
+}
+
+function createSupabaseServiceRoleClient() {
+	const serviceRoleKey = getServiceRoleKey();
+	if (!serviceRoleKey) {
+		return null;
+	}
+
+	return createClient(getSupabaseUrl(), serviceRoleKey, {
+		auth: {
+			autoRefreshToken: false,
+			persistSession: false,
+			detectSessionInUrl: false
+		}
+	});
+}
 
 interface UserProfileRow {
 	user_id?: string;
@@ -1068,31 +1088,85 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 	return { created: true, apiKey: roll.keyValue };
 }
 
-export async function deactivateUserAccount(userId: string, accessToken: string) {
-	await ensureUserProfileRecord(userId, accessToken);
-	await ensureUserAccountRecord(userId, accessToken);
-
-	const client = createSupabaseAuthedClient(accessToken);
-	const [{ error: profileError }, { error: accountError }] = await Promise.all([
-		client.from('user_profiles').update({ user_state: 'banned' }).eq('user_id', userId),
-		client
-			.from('user_accounts')
-			.update({
-				api_key_hash: null,
-				api_key_fingerprint: null,
-				api_key_disabled: true,
-				allowed_usage_usd: 0,
-				usage_carried_forward_usd: 0,
-				provisioned_usage_limit_usd: 0
-			})
-			.eq('user_id', userId)
-	]);
-
-	if (profileError) {
-		throw new Error(profileError.message);
+async function deleteSupabaseAuthUser(userId: string) {
+	const serviceRoleKey = getServiceRoleKey();
+	if (!serviceRoleKey) {
+		throw new Error('SUPABASE_SERVICE_ROLE_KEY is required to permanently delete users.');
 	}
 
-	if (accountError) {
-		throw new Error(accountError.message);
+	const url = new URL(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, getSupabaseUrl());
+	const response = await fetch(url.toString(), {
+		method: 'DELETE',
+		headers: {
+			apikey: serviceRoleKey,
+			Authorization: `Bearer ${serviceRoleKey}`,
+			'Content-Type': 'application/json'
+		}
+	});
+
+	if (response.status === 404) {
+		return;
+	}
+
+	if (!response.ok) {
+		throw new Error(`Failed to delete auth user: ${response.status} ${response.statusText}`);
+	}
+}
+
+export async function deleteUserAccountPermanently(userId: string) {
+	const client = createSupabaseServiceRoleClient();
+	if (!client) {
+		throw new Error('SUPABASE_SERVICE_ROLE_KEY is required to permanently delete users.');
+	}
+
+	const errors: string[] = [];
+	const keyName = `Nawab Auth ${userId}`;
+
+	const { data: account, error: accountReadError } = await client
+		.from('user_accounts')
+		.select('api_key_hash')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (accountReadError) {
+		errors.push(`Failed to read account data: ${accountReadError.message}`);
+	}
+
+	try {
+		await deleteOpenRouterApiKeysByName(keyName);
+	} catch (error) {
+		errors.push(`Failed to delete OpenRouter keys by name: ${error instanceof Error ? error.message : String(error)}`);
+	}
+
+	const apiKeyHash = account?.api_key_hash?.trim() ?? '';
+	if (apiKeyHash) {
+		try {
+			await deleteOpenRouterApiKey(apiKeyHash);
+		} catch (error) {
+			errors.push(`Failed to delete OpenRouter key: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	const [{ error: accountDeleteError }, { error: profileDeleteError }] = await Promise.all([
+		client.from('user_accounts').delete().eq('user_id', userId),
+		client.from('user_profiles').delete().eq('user_id', userId)
+	]);
+
+	if (accountDeleteError) {
+		errors.push(`Failed to delete account data: ${accountDeleteError.message}`);
+	}
+
+	if (profileDeleteError) {
+		errors.push(`Failed to delete profile data: ${profileDeleteError.message}`);
+	}
+
+	try {
+		await deleteSupabaseAuthUser(userId);
+	} catch (error) {
+		errors.push(error instanceof Error ? error.message : 'Failed to delete auth user.');
+	}
+
+	if (errors.length > 0) {
+		throw new Error(errors.join(' '));
 	}
 }

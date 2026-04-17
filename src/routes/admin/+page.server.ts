@@ -1,9 +1,9 @@
 import { fail, redirect } from '@sveltejs/kit';
 import {
-	deactivateUserAccount,
 	getAdminUserDetail,
 	isUserAdmin,
 	listAdminUsers,
+	deleteUserAccountPermanently,
 	rollApiKey,
 	setApiKeyDisabled,
 	setUsageLimitUsd,
@@ -230,7 +230,7 @@ export const actions: Actions = {
 		}
 	},
 	deleteAccount: async ({ locals, cookies, request }) => {
-		const { accessToken } = await requireAdminAccess(locals, cookies);
+		await requireAdminAccess(locals, cookies);
 
 		const formData = await request.formData();
 		const userId = String(formData.get('userId') ?? '').trim();
@@ -240,10 +240,10 @@ export const actions: Actions = {
 		}
 
 		try {
-			await deactivateUserAccount(userId, accessToken);
-			return { actionMessage: `Deactivated ${userId}.` };
+			await deleteUserAccountPermanently(userId);
+			return { actionMessage: `Permanently deleted ${userId} and removed associated data.` };
 		} catch (error) {
-			return failAction(getErrorMessage(error, 'Failed to deactivate account.'));
+			return failAction(getErrorMessage(error, 'Failed to permanently delete account.'));
 		}
 	}
 };
