@@ -242,9 +242,9 @@
 			{/if}
 
 			{#if !gateState.onboarded}
-				<p class="warning">Complete onboarding first. Terms acceptance is required before OIDC sign-in.</p>
+				<p class="warning">Awaiting admin approval. An admin must approve your account before sign-in.</p>
 			{:else if !gateState.isVerified}
-				<p class="warning">Your account is not verified yet. Ask an admin to verify your account first.</p>
+				<p class="warning">Awaiting admin approval. An admin must approve your account before sign-in.</p>
 				{#if unverifiedReturnUrl}
 					<button type="button" class="secondary-btn" onclick={() => (window.location.href = unverifiedReturnUrl)}>
 						Go back

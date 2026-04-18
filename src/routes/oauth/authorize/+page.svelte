@@ -49,12 +49,11 @@
 		{:else if mustWatchVideo}
 			<div class="share-card">
 				<p class="share-title">First-time setup required</p>
-				<p class="share-note">Watch this setup video before approving. The API key will be automatically generated.</p>
+				<p class="share-note">Watch this setup video before approving.</p>
 				<video controls preload="metadata" onended={() => (watchedInSession = true)}>
 					<source src="/onboarding.mp4" type="video/mp4" />
 					Your browser does not support video playback.
 				</video>
-				<p class="share-note">{videoWatched ? 'Video watched. You can approve now.' : 'Watch the video first to enable approve.'}</p>
 			</div>
 		{/if}
 

@@ -1,7 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
-import { BANNED_ACCOUNT_MESSAGE, isUserBanned } from '$lib/server/account';
+import {
+	BANNED_ACCOUNT_MESSAGE,
+	isUserOnboarded,
+	isUserBanned
+} from '$lib/server/account';
 import { getSupabaseUserFromAccessToken, setSupabaseAccessCookie } from '$lib/server/supabase';
 import { normalizeReturnToPath, readFormOrJsonBody } from '$lib/server/http';
 import type { RequestHandler } from '@sveltejs/kit';
@@ -119,6 +123,15 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 
 		// Set the access token cookie
 		setSupabaseAccessCookie(cookies, token);
+
+		const resolvedUser = await getSupabaseUserFromAccessToken(token);
+		if (resolvedUser && !(await isUserOnboarded(resolvedUser.id, token))) {
+			return json({
+				success: true,
+				redirectTo: '/onboarding'
+			});
+		}
+
 		cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
 
 		return json({

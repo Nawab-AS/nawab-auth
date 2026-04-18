@@ -28,7 +28,7 @@ function requireDashboardSession(locals: App.Locals, cookies: import('@sveltejs/
 	return { user, accessToken };
 }
 
-export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
+export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	// User is guaranteed to be present due to route protection in hooks.server.ts
 	// But we can assert it here for type safety if needed
 	const user = locals.user;
@@ -41,7 +41,7 @@ export const load: PageServerLoad = async ({ url, locals, cookies, fetch }) => {
 	}
 
 	const snapshot = await buildDashboardSnapshot(user!, accessToken);
-	const oauthSettings = await getOAuthSettings(fetch);
+	const oauthSettings = await getOAuthSettings();
 	const enabledProviders = oauthSettings.providers;
 
 	let linkedProviderNames = new Set<string>();

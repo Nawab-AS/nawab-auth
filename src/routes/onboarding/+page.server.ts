@@ -1,8 +1,16 @@
 import { env } from '$env/dynamic/private';
 import { fail, redirect } from '@sveltejs/kit';
 import { completeUserOnboarding, isUserOnboarded } from '$lib/server/account';
+import { normalizeReturnToPath } from '$lib/server/http';
 import { getAccessTokenFromCookies } from '$lib/server/supabase';
+import type { Cookies } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+
+const AUTH_RETURN_TO_COOKIE = 'auth_return_to';
+
+function getPostOnboardingReturnTo(cookies: Cookies) {
+	return normalizeReturnToPath(cookies.get(AUTH_RETURN_TO_COOKIE));
+}
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
 	const user = locals.user;
@@ -13,7 +21,7 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 	const accessToken = getAccessTokenFromCookies(cookies);
 	const onboarded = await isUserOnboarded(user.id, accessToken);
 	if (onboarded) {
-		throw redirect(303, '/dashboard');
+		throw redirect(303, getPostOnboardingReturnTo(cookies));
 	}
 
 	const supportEmail = env.SUPPORT_EMAIL?.trim() || 'support@example.com';
@@ -84,6 +92,8 @@ export const actions: Actions = {
 			});
 		}
 
-		throw redirect(303, '/dashboard');
+		const returnTo = getPostOnboardingReturnTo(cookies);
+		cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
+		throw redirect(303, returnTo);
 	}
 };

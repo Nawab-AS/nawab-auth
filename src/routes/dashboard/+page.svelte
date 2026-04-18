@@ -115,19 +115,20 @@
 			<p>Create a new key anytime, or disable your current key without deleting it.</p>
 
 			{#if !data.isVerified}
-				<p class="notice">Your account is unverified. Rolling a key is blocked until an admin verifies your account.</p>
+				<p class="notice">Your account is unverified. Creating an API key is blocked until an admin verifies your account.</p>
+			
+			{:else}
+				<form method="POST" action="?/rollKey">
+					<button type="submit" class="primary" disabled={!data.isVerified}>Roll API key</button>
+				</form>
+
+				<form method="POST" action="?/disableKey">
+					<input type="hidden" name="disabled" value={data.apiKeyDisabled ? 'false' : 'true'} />
+					<button type="submit" class="secondary">
+						{data.apiKeyDisabled ? 'Enable API key' : 'Disable API key'}
+					</button>
+				</form>
 			{/if}
-
-			<form method="POST" action="?/rollKey">
-				<button type="submit" class="primary" disabled={!data.isVerified}>Roll API key</button>
-			</form>
-
-			<form method="POST" action="?/disableKey">
-				<input type="hidden" name="disabled" value={data.apiKeyDisabled ? 'false' : 'true'} />
-				<button type="submit" class="secondary">
-					{data.apiKeyDisabled ? 'Enable API key' : 'Disable API key'}
-				</button>
-			</form>
 
 			{#if data.rolled}
 				<p class="notice">API key rolled.</p>

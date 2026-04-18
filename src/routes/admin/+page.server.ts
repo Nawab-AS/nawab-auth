@@ -230,7 +230,7 @@ export const actions: Actions = {
 		}
 	},
 	deleteAccount: async ({ locals, cookies, request }) => {
-		await requireAdminAccess(locals, cookies);
+		const { accessToken } = await requireAdminAccess(locals, cookies);
 
 		const formData = await request.formData();
 		const userId = String(formData.get('userId') ?? '').trim();
@@ -240,7 +240,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			await deleteUserAccountPermanently(userId);
+			await deleteUserAccountPermanently(userId, accessToken);
 			return { actionMessage: `Permanently deleted ${userId} and removed associated data.` };
 		} catch (error) {
 			return failAction(getErrorMessage(error, 'Failed to permanently delete account.'));

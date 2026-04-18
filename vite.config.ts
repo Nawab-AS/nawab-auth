@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
 	return {
 		plugins: [sveltekit()],
 		server: {
-			allowedHosts: [env.OIDC_ISSUER_URL]
+			allowedHosts: [env.OIDC_ISSUER_URL.split("//")[1]]
 		}
 	};
 });

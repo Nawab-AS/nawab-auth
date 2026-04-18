@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 import type { DashboardSnapshot } from '$lib/server/oidc';
 import {
@@ -23,21 +22,6 @@ const textEncoder = new TextEncoder();
 
 function getServiceRoleKey() {
 	return env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? '';
-}
-
-function createSupabaseServiceRoleClient() {
-	const serviceRoleKey = getServiceRoleKey();
-	if (!serviceRoleKey) {
-		return null;
-	}
-
-	return createClient(getSupabaseUrl(), serviceRoleKey, {
-		auth: {
-			autoRefreshToken: false,
-			persistSession: false,
-			detectSessionInUrl: false
-		}
-	});
 }
 
 interface UserProfileRow {
@@ -356,6 +340,11 @@ async function ensureUserAccountRecord(userId: string, accessToken: string) {
 	if (insertError) {
 		throw new Error(insertError.message);
 	}
+}
+
+export async function ensurePendingUserRegistrationRecords(userId: string, accessToken: string) {
+	await ensureUserProfileRecord(userId, accessToken);
+	await ensureUserAccountRecord(userId, accessToken);
 }
 
 async function getCurrentUsageUsd(apiKeyHash: string | null | undefined): Promise<number> {
@@ -755,12 +744,12 @@ export async function rollApiKey(userId: string, accessToken: string) {
 
 export async function generateApiKeyForOidcLogin(userId: string, accessToken: string): Promise<string | null> {
 	const gateState = await getOidcApiKeyGateState(userId, accessToken);
-	if (!gateState.onboarded) {
-		throw new Error('Complete onboarding first before generating an API key.');
+	if (!gateState.isVerified) {
+		throw new Error('Awaiting admin approval before OIDC sign-in.');
 	}
 
-	if (!gateState.isVerified) {
-		throw new Error('Your account is not verified yet. An admin must verify your account first.');
+	if (!gateState.onboarded) {
+		throw new Error('Awaiting admin approval before OIDC sign-in.');
 	}
 
 	if (gateState.hasApiKey) {
@@ -822,8 +811,8 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 
 export async function enableApiKeyForOidcLogin(userId: string, accessToken: string) {
 	const gateState = await getOidcApiKeyGateState(userId, accessToken);
-	if (!gateState.onboarded) {
-		throw new Error('Complete onboarding first before enabling your API key.');
+	if (!gateState.isVerified || !gateState.onboarded) {
+		throw new Error('Awaiting admin approval before OIDC sign-in.');
 	}
 
 	if (!gateState.hasApiKey) {
@@ -1113,11 +1102,8 @@ async function deleteSupabaseAuthUser(userId: string) {
 	}
 }
 
-export async function deleteUserAccountPermanently(userId: string) {
-	const client = createSupabaseServiceRoleClient();
-	if (!client) {
-		throw new Error('SUPABASE_SERVICE_ROLE_KEY is required to permanently delete users.');
-	}
+export async function deleteUserAccountPermanently(userId: string, accessToken: string) {
+	const client = createSupabaseAuthedClient(accessToken);
 
 	const errors: string[] = [];
 	const keyName = `Nawab Auth ${userId}`;
@@ -1145,19 +1131,6 @@ export async function deleteUserAccountPermanently(userId: string) {
 		} catch (error) {
 			errors.push(`Failed to delete OpenRouter key: ${error instanceof Error ? error.message : String(error)}`);
 		}
-	}
-
-	const [{ error: accountDeleteError }, { error: profileDeleteError }] = await Promise.all([
-		client.from('user_accounts').delete().eq('user_id', userId),
-		client.from('user_profiles').delete().eq('user_id', userId)
-	]);
-
-	if (accountDeleteError) {
-		errors.push(`Failed to delete account data: ${accountDeleteError.message}`);
-	}
-
-	if (profileDeleteError) {
-		errors.push(`Failed to delete profile data: ${profileDeleteError.message}`);
 	}
 
 	try {

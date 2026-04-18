@@ -98,7 +98,7 @@ function requireOidcGateActionContext(
 	};
 }
 
-export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
+export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	const currentCookieReturnTo = cookies.get(AUTH_RETURN_TO_COOKIE);
 	const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
 	const returnTo = getEffectiveReturnTo(requestedReturnTo, currentCookieReturnTo);
@@ -113,16 +113,9 @@ export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
 		maxAge: AUTH_RETURN_TO_MAX_AGE_SECONDS
 	});
 
-	const isOidcAuthorizeReturn = returnTo.startsWith('/oauth/authorize');
-
-	// Redirect authenticated users to the requested target, unless this is OIDC return that needs key gate checks.
-	if (user && !isOidcAuthorizeReturn) {
-		throw redirect(303, returnTo);
-	}
-
 	const authError = url.searchParams.get('error');
 
-	const oauthSettings = await getOAuthSettings(fetch);
+	const oauthSettings = await getOAuthSettings();
 
 	const supabaseUrl = getSupabaseUrl();
 	const authOrigin = new URL(getIssuer()).origin;
@@ -142,6 +135,18 @@ export const load: PageServerLoad = async ({ url, fetch, locals, cookies }) => {
 	const accessToken = getAccessTokenFromCookies(cookies);
 	if (!accessToken) {
 		throw redirect(303, '/login');
+	}
+
+	const onboarded = await isUserOnboarded(user.id, accessToken);
+	if (!onboarded) {
+		throw redirect(303, '/onboarding');
+	}
+
+	const isOidcAuthorizeReturn = returnTo.startsWith('/oauth/authorize');
+
+	// Redirect authenticated and onboarded users to the requested target, unless this is OIDC return that needs key gate checks.
+	if (!isOidcAuthorizeReturn) {
+		throw redirect(303, returnTo);
 	}
 
 	const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
