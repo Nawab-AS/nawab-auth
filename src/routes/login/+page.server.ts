@@ -7,6 +7,7 @@ import {
 	getSupabaseUrl,
 	setSupabaseAccessCookie
 } from '$lib/server/supabase';
+import { isOtpEmailDomainAllowed } from '$lib/server/auth';
 import {
 	BANNED_ACCOUNT_MESSAGE,
 	enableApiKeyForOidcLogin,
@@ -169,9 +170,9 @@ export const actions: Actions = {
 
 		const normalizedEmail = email.toLowerCase();
 
-		if (normalizedEmail.endsWith('@hdsb.ca')) {
+		if (!isOtpEmailDomainAllowed(normalizedEmail)) {
 			return fail(400, {
-				message: 'This email domain is not allowed',
+				message: 'This email provider is not allowed',
 				returnTo,
 				email
 			});
@@ -229,6 +230,15 @@ export const actions: Actions = {
 
 		if (!email) {
 			return fail(400, { message: 'Email is required.', returnTo, email, token });
+		}
+
+		if (!isOtpEmailDomainAllowed(email)) {
+			return fail(400, {
+				message: 'This email provider is not allowed.',
+				returnTo,
+				email,
+				token
+			});
 		}
 
 		if (!token) {

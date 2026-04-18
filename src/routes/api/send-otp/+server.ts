@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAnonKey, getSupabaseUrl } from '$lib/server/supabase';
+import { isOtpEmailDomainAllowed } from '$lib/server/auth';
 
 const OTP_WINDOW_MS = 45_000;
 const otpRequestCooldown = new Map<string, number>();
@@ -43,9 +44,9 @@ export async function POST({ request }) {
 			);
 		}
 
-		if (normalizedEmail.endsWith('@hdsb.ca')) {
+		if (!isOtpEmailDomainAllowed(normalizedEmail)) {
 			return json(
-				{ error: 'This email domain is not allowed' },
+				{ error: 'This email provider is not allowed.' },
 				{ status: 400 }
 			);
 		}

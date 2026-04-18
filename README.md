@@ -77,6 +77,10 @@ Optional for verification email delivery:
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
 
+Optional for OTP email domain restrictions:
+
+- `OTP_ALLOWED_EMAIL_DOMAINS`
+
 Required for OpenRouter key provisioning and rotation:
 
 - `OPENROUTER_MANAGEMENT_API_KEY`
@@ -88,6 +92,14 @@ Recommended for stable OIDC tokens across restarts:
 If `OIDC_PRIVATE_JWK` is missing, the app generates an ephemeral signing key at runtime, which invalidates existing tokens after restart.
 
 If your OIDC client is public and does not send a client secret to `/oauth/token`, set `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=true`. This is useful for PKCE-based clients such as LibreChat when token exchange happens without client authentication.
+
+### OTP Email Domain Allowlist
+
+Use `OTP_ALLOWED_EMAIL_DOMAINS` to restrict OTP login to specific email domains.
+
+- Format: comma-separated domain names (without `@`)
+- Example: `OTP_ALLOWED_EMAIL_DOMAINS=gmail.com,yahoo.com,outlook.com,hotmail.com,icloud.com,nawab-as.dev`
+- If unset or empty, OTP login allows all email domains
 
 ### CORS Configuration for OAuth Endpoints
 

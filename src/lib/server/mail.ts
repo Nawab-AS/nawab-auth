@@ -22,8 +22,8 @@ function buildTextBody(input: VerificationEmailInput): string {
 	return [
 		`Hi ${name},`,
 		'',
-		'Your Nawab Auth account has been verified by an administrator.',
-		'You can now use Login with Nawab Auth and receive your OpenRouter API key on first SSO approval.',
+		'Your Nawab Auth account has been verified by an admin.',
+		'You can now use \'Login with Nawab Auth\' to access allowed services.',
 		'',
 		`If this was unexpected, contact support at ${getSupportEmail()}.`
 	].join('\n');
