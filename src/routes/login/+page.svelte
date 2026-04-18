@@ -230,7 +230,7 @@
 <main class="shell">
 	<section class="panel">
 		{#if isSignedInGateMode && gateState}
-			<p class="eyebrow">OIDC preflight</p>
+			<p class="eyebrow">SSO preflight</p>
 			<h1>Finish key setup</h1>
 
 			{#if pageError}
@@ -281,7 +281,7 @@
 			{#if gateState.canManageAfterPrerequisites && gateState.hasApiKey && gateState.apiKeyDisabled}
 				<div class="dialog-panel">
 					<p class="section-label">API key disabled</p>
-					<p class="footer-text">Your key is currently disabled. Enable it to continue with OIDC login.</p>
+					<p class="footer-text">Your key is currently disabled. Enable it to continue with SSO login.</p>
 					<form method="POST" action="?/enableApiKey" use:enhance={enhanceGateAction} class="form-stack">
 						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
 						<button type="submit" class="primary" disabled={gateActionBusy}>

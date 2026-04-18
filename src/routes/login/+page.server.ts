@@ -30,21 +30,41 @@ function isGenericReturnTo(value: string) {
 	return value === '/' || value === '/dashboard';
 }
 
-function getEffectiveReturnTo(primary: string | null | undefined, cookieValue: string | null | undefined) {
+function hasExplicitReturnTo(value: string | null | undefined) {
+	return typeof value === 'string' && value.trim().length > 0;
+}
+
+function getEffectiveReturnTo(
+	primary: string | null | undefined,
+	cookieValue: string | null | undefined,
+	allowCookieOidcFallback = false
+) {
 	const normalizedPrimary = normalizeReturnToPath(primary);
 	const normalizedCookie = cookieValue ? normalizeReturnToPath(cookieValue) : null;
 
-	if (normalizedCookie?.startsWith('/oauth/authorize') && isGenericReturnTo(normalizedPrimary)) {
+	if (
+		allowCookieOidcFallback &&
+		normalizedCookie?.startsWith('/oauth/authorize') &&
+		isGenericReturnTo(normalizedPrimary)
+	) {
 		return normalizedCookie;
 	}
 
 	return normalizedPrimary;
 }
 
-function getCookieReturnTo(valueToStore: string, existingCookieValue: string | null | undefined) {
+function getCookieReturnTo(
+	valueToStore: string,
+	existingCookieValue: string | null | undefined,
+	allowCookieOidcFallback = false
+) {
 	const normalizedExisting = existingCookieValue ? normalizeReturnToPath(existingCookieValue) : null;
 
-	if (normalizedExisting?.startsWith('/oauth/authorize') && isGenericReturnTo(valueToStore)) {
+	if (
+		allowCookieOidcFallback &&
+		normalizedExisting?.startsWith('/oauth/authorize') &&
+		isGenericReturnTo(valueToStore)
+	) {
 		return normalizedExisting;
 	}
 
@@ -57,15 +77,16 @@ function resolveReturnToFromForm(
 	cookies: Cookies,
 	fallback = '/dashboard'
 ) {
+	const primary =
+		formData.get('redirect_to') ??
+		formData.get('return_to') ??
+		url.searchParams.get('redirect_to') ??
+		url.searchParams.get('return_to');
+
 	return getEffectiveReturnTo(
-		String(
-			formData.get('redirect_to') ??
-				formData.get('return_to') ??
-				url.searchParams.get('redirect_to') ??
-				url.searchParams.get('return_to') ??
-				fallback
-		),
-		cookies.get(AUTH_RETURN_TO_COOKIE)
+		String(primary ?? fallback),
+		cookies.get(AUTH_RETURN_TO_COOKIE),
+		!hasExplicitReturnTo(typeof primary === 'string' ? primary : null)
 	);
 }
 
@@ -102,9 +123,14 @@ function requireOidcGateActionContext(
 export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	const currentCookieReturnTo = cookies.get(AUTH_RETURN_TO_COOKIE);
 	const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
-	const returnTo = getEffectiveReturnTo(requestedReturnTo, currentCookieReturnTo);
+	const allowCookieOidcFallback = !hasExplicitReturnTo(requestedReturnTo);
+	const returnTo = getEffectiveReturnTo(
+		requestedReturnTo,
+		currentCookieReturnTo,
+		allowCookieOidcFallback
+	);
 	const user = locals.user;
-	const cookieReturnTo = getCookieReturnTo(returnTo, currentCookieReturnTo);
+	const cookieReturnTo = getCookieReturnTo(returnTo, currentCookieReturnTo, allowCookieOidcFallback);
 
 	cookies.set(AUTH_RETURN_TO_COOKIE, cookieReturnTo, {
 		path: '/',
@@ -147,11 +173,13 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 
 	// Redirect authenticated and onboarded users to the requested target, unless this is OIDC return that needs key gate checks.
 	if (!isOidcAuthorizeReturn) {
+		cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
 		throw redirect(303, returnTo);
 	}
 
 	const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
 	if (oidcGate.canProceedToOidc) {
+		cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
 		throw redirect(303, returnTo);
 	}
 

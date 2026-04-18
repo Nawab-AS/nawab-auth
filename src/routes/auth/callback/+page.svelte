@@ -86,9 +86,9 @@
 
 <main>
 	{#if loading}
-		<p>Authenticating...</p>
+		<h1>Authenticating...</h1>
 	{:else}
-		<p class="error">{error}</p>
+		<h1 class="error">{error}</h1>
 	{/if}
 </main>
 
@@ -103,7 +103,7 @@
 		font-family: 'Segoe UI', sans-serif;
 	}
 
-	p {
+	h1 {
 		font-size: 1.1rem;
 	}
 

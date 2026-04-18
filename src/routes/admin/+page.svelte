@@ -153,9 +153,9 @@
 	<section class="panel shell-grid">
 		<header class="hero">
 			<div class="hero-copy">
-				<p class="eyebrow">Admin dashboard</p>
-				<h1>User operations</h1>
-				<p class="lede">Manage users, account state, API keys, and provider links from one workspace.</p>
+				<br/>
+				<h1 class="eyebrow">Admin dashboard</h1>
+				<br/>
 			</div>
 			<form method="GET" action="/dashboard" class="hero-actions">
 				<button type="submit" class="ghost-link">Back to dashboard</button>
@@ -238,7 +238,7 @@
 									<span class="mono">{row.userId}</span>
 									<span class="key-pill">{getApiKeyState(row.apiKeyAssigned, row.apiKeyDisabled)}</span>
 								</span>
-								<span class="user-email">{data.emailByUserId[row.userId] ?? 'No email'}</span>
+								<span class="user-email">{data.emailByUserId[row.userId] ? (data.emailByUserId[row.userId]?.split('@')[0].slice(0, 3)+"****@"+data.emailByUserId[row.userId]?.split('@')[1]) : 'No Email'}</span>
 								<span class="user-name">{row.preferredName ?? 'Unspecified'}</span>
 								<span class="flag-list">
 									<span class="flag">{row.userState}</span>
@@ -260,7 +260,7 @@
 					<article class="detail-card user-card">
 						<h2>Selected user</h2>
 						<p class="mono">{selectedRow.userId}</p>
-						<p>{selectedEmail ?? 'No email available'}</p>
+						<p>{data.emailByUserId[selectedRow.userId] ? (data.emailByUserId[selectedRow.userId]?.split('@')[0].slice(0, 3)+"****@"+data.emailByUserId[selectedRow.userId]?.split('@')[1]) : 'No Email'}</p>
 						<p>API key: <strong>{apiKeyStateLabel}</strong></p>
 						<p>User state: <strong>{selectedRow.userState}</strong></p>
 						<div class="flag-list">
@@ -276,9 +276,9 @@
 					<div class="detail-grid">
 						<article class="detail-card action-card">
 							<h2>Usage</h2>
-							<p>Allowed: ${data.selectedUser.allowedUsageUsd.toFixed(2)}</p>
-							<p>Current usage: ${data.selectedUser.currentUsageUsd.toFixed(2)}</p>
-							<p class={`usage-${getUsageTone(remainingCredits)}`}>Remaining: ${remainingCredits.toFixed(2)}</p>
+							<p>Allowed: ${data.selectedUser.allowedUsageUsd.toFixed(4)}</p>
+							<p>Current usage: ${data.selectedUser.currentUsageUsd.toFixed(4)}</p>
+							<p class={`usage-${getUsageTone(remainingCredits)}`}>Remaining: ${remainingCredits.toFixed(4)}</p>
 							<form method="POST" action="?/setUsageLimit" use:enhance={enhanceAdminAction}>
 								<input type="hidden" name="userId" value={selectedRow.userId} />
 								<label class="search-wrap">
@@ -288,7 +288,7 @@
 										name="allowedUsageUsd"
 										min="0"
 										step="0.01"
-										value={data.selectedUser.allowedUsageUsd.toFixed(2)}
+										value={data.selectedUser.allowedUsageUsd.toFixed(4)}
 									/>
 								</label>
 								<button type="submit" class="small-button">Save limit</button>
@@ -447,7 +447,7 @@
 	.eyebrow {
 		text-transform: uppercase;
 		letter-spacing: 0.2em;
-		font-size: 0.76rem;
+		font-size: 1.5rem;
 		color: #f5b76a;
 		margin: 0;
 	}
@@ -790,8 +790,8 @@
 	button:hover,
 	.ghost-link:hover,
 	.small-button:hover {
-		transform: translateY(-1px);
-		background: #f3f4f6;
+		transform: translateY(-2px);
+		/* background: #f3f4f6; */
 	}
 
 	.small-button {

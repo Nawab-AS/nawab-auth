@@ -16,11 +16,23 @@ function isGenericReturnTo(value: string) {
 	return value === '/' || value === '/dashboard';
 }
 
-function getEffectiveReturnTo(primary: string | null | undefined, cookieValue: string | null | undefined) {
+function hasExplicitReturnTo(value: string | null | undefined) {
+	return typeof value === 'string' && value.trim().length > 0;
+}
+
+function getEffectiveReturnTo(
+	primary: string | null | undefined,
+	cookieValue: string | null | undefined,
+	allowCookieOidcFallback = false
+) {
 	const normalizedPrimary = normalizeReturnToPath(primary);
 	const normalizedCookie = cookieValue ? normalizeReturnToPath(cookieValue) : null;
 
-	if (normalizedCookie?.startsWith('/oauth/authorize') && isGenericReturnTo(normalizedPrimary)) {
+	if (
+		allowCookieOidcFallback &&
+		normalizedCookie?.startsWith('/oauth/authorize') &&
+		isGenericReturnTo(normalizedPrimary)
+	) {
 		return normalizedCookie;
 	}
 
@@ -36,9 +48,11 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 		const accessToken = typeof body.accessToken === 'string' ? body.accessToken.trim() : '';
 		const otpToken = typeof body.otpToken === 'string' ? body.otpToken.trim() : '';
 		const otpType = typeof body.otpType === 'string' ? body.otpType.trim() : '';
+		const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
 		const returnTo = getEffectiveReturnTo(
-			url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to'),
-			cookies.get(AUTH_RETURN_TO_COOKIE)
+			requestedReturnTo,
+			cookies.get(AUTH_RETURN_TO_COOKIE),
+			!hasExplicitReturnTo(requestedReturnTo)
 		);
 
 		if (!accessToken && !otpToken) {

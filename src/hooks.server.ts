@@ -52,6 +52,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// If no user and route is protected, redirect to login
 	if (!user) {
+		if (event.url.pathname === '/') {
+			throw redirect(303, '/login');
+		}
+
 		const returnTo = `${event.url.pathname}${event.url.search}`;
 		throw redirect(303, `/login?redirect_to=${encodeURIComponent(returnTo)}`);
 	}

@@ -91,33 +91,36 @@
 	</section>
 
 	<section class="metrics">
-		<article>
-			<span>Allowed usage</span>
-			<strong>${data.allowedUsageUsd.toFixed(4)}</strong>
-		</article>
-		<article>
-			<span>Remaining</span>
-			<strong>${remainingCredits.toFixed(4)}</strong>
-		</article>
-		<article>
-			<span>API key</span>
-			<strong>{apiKeyState}</strong>
-		</article>
-		<article>
-			<span>API key fingerprint</span>
-			<strong>{data.apiKeyFingerprint ?? 'Not provisioned'}</strong>
-		</article>
+		{#if data.isVerified}
+			<article>
+				<span>Allowed usage</span>
+				<strong>${data.allowedUsageUsd.toFixed(4)}</strong>
+			</article>
+			<article>
+				<span>Remaining</span>
+				<strong>${remainingCredits.toFixed(4)}</strong>
+			</article>
+			<article>
+				<span>API key</span>
+				<strong>{apiKeyState}</strong>
+			</article>
+			<article>
+				<span>API key fingerprint</span>
+				<strong>{data.apiKeyFingerprint ?? 'Not provisioned'}</strong>
+			</article>
+		{:else}
+			<br/>
+		{/if}
 	</section>
-
+		
 	<section class="panel-grid">
 		<div class="panel">
-			<h2>API key</h2>
-			<p>Create a new key anytime, or disable your current key without deleting it.</p>
-
+			<h2>API key Management</h2>
+			
 			{#if !data.isVerified}
 				<p class="notice">Your account is unverified. Creating an API key is blocked until an admin verifies your account.</p>
-			
 			{:else}
+				<p>Create a new key anytime, or disable your current key without deleting it.</p>
 				<form method="POST" action="?/rollKey">
 					<button type="submit" class="primary" disabled={!data.isVerified}>Roll API key</button>
 				</form>
@@ -216,7 +219,6 @@
 	}
 
 	.page {
-		min-height: 100vh;
 		padding: 2rem;
 		max-width: 1180px;
 		margin: 0 auto;
