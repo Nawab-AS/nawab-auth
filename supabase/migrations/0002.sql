@@ -13,7 +13,7 @@ with check (
   public.is_current_user_admin()
   or (
     auth.uid() = user_id
-    and allowed_usage_usd = 0
+    and allowed_usage_usd <= 0.001
     and usage_carried_forward_usd = 0
     and coalesce(api_key_disabled, false) = false
   )

@@ -179,7 +179,10 @@ async function validateVideoGateCookie(input: {
 
 export const load = async ({ url, cookies }) => {
 	const clientId = url.searchParams.get('client_id')?.trim() ?? '';
-	const redirectUri = url.searchParams.get('redirect_uri')?.trim() ?? '';
+	const redirectUri =
+		url.searchParams.get('redirect_uri')?.trim() ??
+		url.searchParams.get('redirect_url')?.trim() ??
+		'';
 	const responseType = url.searchParams.get('response_type')?.trim() ?? '';
 	const scope = parseScopes(url.searchParams.get('scope'));
 	const state = url.searchParams.get('state')?.trim() ?? '';
@@ -262,7 +265,13 @@ export const load = async ({ url, cookies }) => {
 export const actions = {
 	approve: async ({ request, url, cookies }) => {
 		const formData = await request.formData();
-		const redirectUri = String(formData.get('redirect_uri') ?? url.searchParams.get('redirect_uri') ?? '').trim();
+		const redirectUri = String(
+			formData.get('redirect_uri') ??
+				formData.get('redirect_url') ??
+				url.searchParams.get('redirect_uri') ??
+				url.searchParams.get('redirect_url') ??
+				''
+		).trim();
 		const state = String(formData.get('state') ?? url.searchParams.get('state') ?? '').trim();
 		const clientId = String(formData.get('client_id') ?? url.searchParams.get('client_id') ?? '').trim();
 		const scopes = parseScopes(String(formData.get('scope') ?? url.searchParams.get('scope') ?? 'openid'));
@@ -332,8 +341,8 @@ export const actions = {
 			await provisionApiKeyForFirstSso(user.id, accessToken);
 		}
 
-		// Get the user's preferred name from the database, fallback to auth name
-		const preferredName = await getUserPreferredName(user.id, accessToken, user.name);
+		// OIDC names must come only from user_profiles.preferred_name.
+		const preferredName = await getUserPreferredName(user.id, accessToken);
 
 		const code = await createAuthorizationCode({
 			identity: {
@@ -354,7 +363,13 @@ export const actions = {
 	},
 	deny: async ({ request, url }) => {
 		const formData = await request.formData();
-		const redirectUri = String(formData.get('redirect_uri') ?? url.searchParams.get('redirect_uri') ?? '').trim();
+		const redirectUri = String(
+			formData.get('redirect_uri') ??
+				formData.get('redirect_url') ??
+				url.searchParams.get('redirect_uri') ??
+				url.searchParams.get('redirect_url') ??
+				''
+		).trim();
 		const state = String(formData.get('state') ?? url.searchParams.get('state') ?? '').trim();
 		const denyReason = toDenyReason(String(formData.get('deny_reason') ?? '').trim().toLowerCase());
 

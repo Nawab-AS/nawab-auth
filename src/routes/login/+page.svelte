@@ -246,57 +246,53 @@
 			{:else if !gateState.isVerified}
 				<p class="warning">Awaiting admin approval. An admin must approve your account before sign-in.</p>
 				{#if unverifiedReturnUrl}
-					<button type="button" class="secondary-btn" onclick={() => (window.location.href = unverifiedReturnUrl)}>
+					<button type="button" class="primary" onclick={() => (window.location.href = unverifiedReturnUrl)}>
 						Go back
 					</button>
 				{/if}
 			{/if}
 
 			{#if gateState.canManageAfterPrerequisites && !gateState.hasApiKey}
-				<div class="dialog-panel">
-					<p class="section-label">Generate API key</p>
-					<p class="footer-text">No key exists yet. Generate one now to continue to consent.</p>
-					<form method="POST" action="?/generateApiKey" use:enhance={enhanceGateAction} class="form-stack">
-						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
-						<button type="submit" class="primary" disabled={gateActionBusy}>
-							{gateActionBusy ? 'Generating...' : 'Generate API key'}
-						</button>
-					</form>
+				<br/>
+				<p class="footer-text">No key exists yet. Generate one now to continue with login.</p>
+				<form method="POST" action="?/generateApiKey" use:enhance={enhanceGateAction} class="form-stack generate-key-form">
+					<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
+					<button type="submit" class="primary" disabled={gateActionBusy}>
+						{gateActionBusy ? 'Generating...' : 'Generate API key'}
+					</button>
+				</form>
+			{/if}
 
-					{#if generatedApiKey}
-						<div class="key-once">
-							<p class="section-label">Shown once</p>
-							<code>{generatedApiKey}</code>
-							<div class="inline-actions">
-								<button type="button" class="secondary-btn" onclick={copyGeneratedKey}>
-									{copied ? 'Copied' : 'Copy key'}
-								</button>
-								<button type="button" class="secondary-btn" onclick={dismissGeneratedKey}>Hide</button>
-							</div>
+			{#if generatedApiKey}
+				<div class="api-key-overlay" role="presentation">
+					<dialog class="api-key-dialog" open aria-labelledby="copy-api-key-title">
+						<h2 id="copy-api-key-title">Copy API key</h2>
+						<code>{generatedApiKey}</code>
+						<p class="key-warning">Do not share your API key. You can regenerate the API key at any time.</p>
+						<div class="inline-actions">
+							<button type="button" class="secondary-btn" onclick={copyGeneratedKey}>
+								{copied ? 'Copied' : 'Copy'}
+							</button>
+							<button type="button" class="secondary-btn" onclick={dismissGeneratedKey}>Close</button>
 						</div>
-					{/if}
+					</dialog>
 				</div>
 			{/if}
 
 			{#if gateState.canManageAfterPrerequisites && gateState.hasApiKey && gateState.apiKeyDisabled}
-				<div class="dialog-panel">
-					<p class="section-label">API key disabled</p>
-					<p class="footer-text">Your key is currently disabled. Enable it to continue with SSO login.</p>
-					<form method="POST" action="?/enableApiKey" use:enhance={enhanceGateAction} class="form-stack">
-						<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
-						<button type="submit" class="primary" disabled={gateActionBusy}>
-							{gateActionBusy ? 'Enabling...' : 'Enable API key'}
-						</button>
-					</form>
-				</div>
+				<p class="section-label">API key disabled</p>
+				<p class="footer-text">Your key is currently disabled. Enable it to continue with login.</p>
+				<form method="POST" action="?/enableApiKey" use:enhance={enhanceGateAction} class="form-stack">
+					<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
+					<button type="submit" class="primary" disabled={gateActionBusy}>
+						{gateActionBusy ? 'Enabling...' : 'Enable API key'}
+					</button>
+				</form>
 			{/if}
 
 			{#if gateState.canProceedToOidc}
-				<div class="dialog-panel">
-					<p class="section-label">Ready</p>
-					<p class="footer-text">Your API key is active. Continue to the consent screen.</p>
-					<button type="button" class="primary" onclick={goToConsent}>Continue to consent</button>
-				</div>
+				<br/>
+				<button type="submit" class="primary" onclick={goToConsent}>Continue to Login</button>
 			{/if}
 		{:else}
 			<p class="eyebrow">Authentication</p>
@@ -600,6 +596,10 @@
 		gap: 0.9rem;
 	}
 
+	.generate-key-form {
+		margin-bottom: 1rem;
+	}
+
 	label {
 		display: grid;
 		gap: 0.45rem;
@@ -696,33 +696,58 @@
 		text-align: center;
 	}
 
-	.dialog-panel {
+	.api-key-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 100;
+		display: grid;
+		place-items: center;
+		padding: 1rem;
+		overflow: auto;
+		background: rgba(15, 17, 21, 0.55);
+		backdrop-filter: blur(4px);
+		-webkit-backdrop-filter: blur(4px);
+	}
+
+	.api-key-dialog {
+		position: static;
+		inset: auto;
 		display: grid;
 		gap: 0.75rem;
-		padding: 0.95rem;
-		border-radius: 0.5rem;
-		border: 1px solid #334155;
-		background: #101822;
-		margin-bottom: 1rem;
+		width: min(34rem, calc(100vw - 2rem));
+		max-width: 34rem;
+		padding: 1.25rem;
+		margin: 0;
+		border-radius: 0.75rem;
+		border: 1px solid #2b3038;
+		background: #1a1d23;
+		color: #e5e7eb;
+		box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
 	}
 
-	.key-once {
-		display: grid;
-		gap: 0.6rem;
-		padding: 0.75rem;
-		border-radius: 0.4rem;
-		border: 1px solid #475569;
-		background: #0f172a;
+	.api-key-dialog h2 {
+		margin: 0;
+		font-size: 1rem;
+		color: #e2e8f0;
 	}
 
-	.key-once code {
+	.api-key-dialog code {
 		display: block;
 		padding: 0.6rem;
 		border-radius: 0.35rem;
-		background: #020617;
+		background: #0f1115;
+		border: 1px solid #2b3038;
 		color: #e2e8f0;
 		font-size: 0.82rem;
+		word-break: break-all;
+		font-family: 'Courier New', monospace;
 		overflow-x: auto;
+	}
+
+	.key-warning {
+		margin: 0;
+		font-size: 0.85rem;
+		color: #fef3c7;
 	}
 
 	.inline-actions {

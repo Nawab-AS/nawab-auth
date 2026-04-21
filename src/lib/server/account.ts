@@ -19,6 +19,7 @@ export const USER_STATES = ['unverified', 'verified', 'admin', 'banned'] as cons
 export type UserState = (typeof USER_STATES)[number];
 
 const textEncoder = new TextEncoder();
+const INITIAL_ALLOWED_USAGE_USD = 0.0001;
 
 function getServiceRoleKey() {
 	return env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? '';
@@ -331,7 +332,7 @@ async function ensureUserAccountRecord(userId: string, accessToken: string) {
 		user_id: userId,
 		api_key_hash: null,
 		api_key_fingerprint: null,
-		allowed_usage_usd: 0,
+		allowed_usage_usd: INITIAL_ALLOWED_USAGE_USD,
 		usage_carried_forward_usd: 0,
 		provisioned_usage_limit_usd: 0,
 		api_key_disabled: false
@@ -449,7 +450,7 @@ export async function completeUserOnboarding(input: CompleteOnboardingInput) {
 		user_id: input.user.id,
 		api_key_hash: null,
 		api_key_fingerprint: null,
-		allowed_usage_usd: 0,
+		allowed_usage_usd: INITIAL_ALLOWED_USAGE_USD,
 		usage_carried_forward_usd: 0,
 		provisioned_usage_limit_usd: 0,
 		api_key_disabled: false
@@ -477,28 +478,25 @@ export async function completeUserOnboarding(input: CompleteOnboardingInput) {
  */
 export async function getUserPreferredName(
 	userId: string,
-	accessToken: string,
-	fallback: string = ''
+	accessToken: string
 ): Promise<string> {
-	try {
-		const client = createSupabaseAuthedClient(accessToken);
-		const { data, error } = await client
-			.from('user_profiles')
-			.select('preferred_name')
-			.eq('user_id', userId)
-			.maybeSingle();
+	const client = createSupabaseAuthedClient(accessToken);
+	const { data, error } = await client
+		.from('user_profiles')
+		.select('preferred_name')
+		.eq('user_id', userId)
+		.maybeSingle();
 
-		if (error) {
-			console.warn(`Failed to fetch preferred name for user ${userId}:`, error);
-			return fallback;
-		}
-
-		const profile = data as UserProfileRow | null;
-		return profile?.preferred_name ?? fallback;
-	} catch (err) {
-		console.warn(`Error getting preferred name for user ${userId}:`, err);
-		return fallback;
+	if (error) {
+		throw new Error(`Failed to fetch preferred_name for user ${userId}: ${error.message}`);
 	}
+
+	const preferredName = String((data as { preferred_name?: string | null } | null)?.preferred_name ?? '').trim();
+	if (!preferredName) {
+		throw new Error(`Missing preferred_name for user ${userId}.`);
+	}
+
+	return preferredName;
 }
 
 export async function getDashboardSnapshot(

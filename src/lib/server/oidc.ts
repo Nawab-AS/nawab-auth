@@ -419,14 +419,20 @@ export async function issueTokenSet(input: { claims: TokenClaims; clientId: stri
 	const scope = scopeArray.join(' ');
 	const accessTokenId = crypto.randomUUID();
 	const refreshTokenId = crypto.randomUUID();
+	const preferredName = input.claims.name.trim();
+	const preferredUsername = input.claims.preferredUsername.trim();
+
+	if (!preferredName || !preferredUsername) {
+		throw new Error('Missing preferred_name claims. Re-authenticate to continue.');
+	}
 
 	const accessToken = await signToken(
 		{
 			sub: input.claims.sub,
 			email: input.claims.email,
 			email_verified: input.claims.emailVerified,
-			name: input.claims.name,
-			preferred_username: input.claims.preferredUsername,
+			name: preferredName,
+			preferred_username: preferredUsername,
 			scope,
 			client_id: input.clientId,
 			token_use: 'access'
@@ -439,8 +445,8 @@ export async function issueTokenSet(input: { claims: TokenClaims; clientId: stri
 			sub: input.claims.sub,
 			email: input.claims.email,
 			email_verified: input.claims.emailVerified,
-			name: input.claims.name,
-			preferred_username: input.claims.preferredUsername,
+			name: preferredName,
+			preferred_username: preferredUsername,
 			nonce: input.claims.nonce,
 			token_use: 'id'
 		},
@@ -453,8 +459,8 @@ export async function issueTokenSet(input: { claims: TokenClaims; clientId: stri
 					sub: input.claims.sub,
 					email: input.claims.email,
 					email_verified: input.claims.emailVerified,
-					name: input.claims.name,
-					preferred_username: input.claims.preferredUsername,
+					name: preferredName,
+					preferred_username: preferredUsername,
 					scope,
 					client_id: input.clientId,
 					token_use: 'refresh'
@@ -489,12 +495,24 @@ export async function verifyRefreshToken(refreshToken: string, clientId: string)
 		throw new Error('Refresh token has been revoked.');
 	}
 
+	const email = String(verified.payload.email ?? '').trim();
+	const name = String(verified.payload.name ?? '').trim();
+	const preferredUsername = String(verified.payload.preferred_username ?? '').trim();
+
+	if (!name || !preferredUsername) {
+		throw new Error('Refresh token is missing preferred_name claims. Re-authenticate to continue.');
+	}
+
+	if ((email && name === email) || (email && preferredUsername === email)) {
+		throw new Error('Refresh token has stale name claims. Re-authenticate to continue.');
+	}
+
 	return {
 		sub: String(verified.payload.sub ?? ''),
-		email: String(verified.payload.email ?? ''),
+		email,
 		emailVerified: Boolean(verified.payload.email_verified),
-		name: String(verified.payload.name ?? ''),
-		preferredUsername: String(verified.payload.preferred_username ?? ''),
+		name,
+		preferredUsername,
 		clientId,
 		scope: String(verified.payload.scope ?? 'openid'),
 		nonce: undefined

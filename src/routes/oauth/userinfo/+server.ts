@@ -25,26 +25,27 @@ function createServiceRoleClient() {
 }
 
 async function getPreferredName(userId: string) {
-	try {
-		const client = createServiceRoleClient();
-		if (!client) {
-			return null;
-		}
-
-		const { data, error } = await client
-			.from('user_profiles')
-			.select('preferred_name')
-			.eq('user_id', userId)
-			.maybeSingle();
-
-		if (error) {
-			return null;
-		}
-
-		return data?.preferred_name?.trim() ?? null;
-	} catch {
-		return null;
+	const client = createServiceRoleClient();
+	if (!client) {
+		throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY for strict OIDC name resolution.');
 	}
+
+	const { data, error } = await client
+		.from('user_profiles')
+		.select('preferred_name')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (error) {
+		throw new Error(`Failed to fetch preferred_name for user ${userId}: ${error.message}`);
+	}
+
+	const preferredName = String((data as { preferred_name?: string | null } | null)?.preferred_name ?? '').trim();
+	if (!preferredName) {
+		throw new Error(`Missing preferred_name for user ${userId}.`);
+	}
+
+	return preferredName;
 }
 
 export const OPTIONS = async ({ request }) => {
@@ -68,14 +69,14 @@ export const GET = async ({ request }) => {
 	try {
 		const payload = await verifyAccessToken(token);
 		const userId = String(payload.sub ?? '').trim();
-		const preferredName = userId ? await getPreferredName(userId) : null;
+		const preferredName = userId ? await getPreferredName(userId) : '';
 		return json(
 			{
 				sub: userId,
 				email: String(payload.email ?? ''),
 				email_verified: Boolean(payload.email_verified),
-				name: preferredName ?? String(payload.name ?? ''),
-				preferred_username: String(payload.preferred_username ?? '')
+				name: preferredName,
+				preferred_username: preferredName
 			},
 			{ headers: { 'cache-control': 'no-store', ...corsHeaders } }
 		);

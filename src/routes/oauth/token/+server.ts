@@ -90,7 +90,7 @@ export const POST = async ({ request }) => {
 
 	if (grantType === 'authorization_code') {
 		const code = String(body.code ?? '').trim();
-		const redirectUri = String(body.redirect_uri ?? '').trim();
+		const redirectUri = String(body.redirect_uri ?? body.redirect_url ?? '').trim();
 		const codeVerifier = String(body.code_verifier ?? '').trim();
 
 		if (!code || !redirectUri) {

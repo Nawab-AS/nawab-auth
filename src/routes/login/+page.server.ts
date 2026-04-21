@@ -178,11 +178,6 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	}
 
 	const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
-	if (oidcGate.canProceedToOidc) {
-		cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
-		throw redirect(303, returnTo);
-	}
-
 	return {
 		...baseData,
 		signedIn: true,
@@ -358,7 +353,7 @@ export const actions: Actions = {
 				oidcGate,
 				generatedApiKey,
 				gateMessage: generatedApiKey
-					? 'API key generated. Copy it now; it will not be shown again.'
+					? 'API key generated. Copy it now. it will not be shown again.'
 					: 'API key already exists.'
 			};
 		} catch (error) {
