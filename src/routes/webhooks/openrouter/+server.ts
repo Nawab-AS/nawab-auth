@@ -28,6 +28,7 @@ interface OpenRouterWebhookPayload {
 
 interface OpenRouterWebhookLog {
 	apiKeyName: string | null;
+	model: string;
 	endTime: number;
 	inputCost: number;
 	outputCost: number;
@@ -153,9 +154,14 @@ function extractWebhookLogs(payload: unknown): OpenRouterWebhookLog[] {
 		const outputTokens = readNumberAttribute(attributes, 'gen_ai.usage.output_tokens');
 		const thinkingTokens = readNumberAttribute(attributes, 'gen_ai.usage.output_tokens.reasoning');
 		const apiKeyName = readStringAttribute(attributes, 'trace.metadata.openrouter.api_key_name');
+		const model =
+			readStringAttribute(attributes, 'gen_ai.request.model') ??
+			readStringAttribute(attributes, 'gen_ai.response.model') ??
+			'unknown';
 
 		return {
 			apiKeyName,
+			model,
 			endTime: parseUnixNanoToEpoch2000Micros(span.endTimeUnixNano),
 			inputCost: readNumberAttribute(attributes, 'gen_ai.usage.input_cost'),
 			outputCost: readNumberAttribute(attributes, 'gen_ai.usage.output_cost'),
@@ -233,6 +239,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const { error } = await client.from('transactions').insert(
 			transactions.map((entry) => ({
 				api_key_name: entry.apiKeyName,
+				model: entry.model,
 				end_time: entry.endTime,
 				input_cost: entry.inputCost,
 				output_cost: entry.outputCost,

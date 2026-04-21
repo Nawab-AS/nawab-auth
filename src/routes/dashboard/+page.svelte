@@ -85,6 +85,9 @@
 					<form method="GET" action="/admin" class="admin-form">
 						<button type="submit" class="admin-button">Admin dashboard</button>
 					</form>
+					<form method="GET" action="/dashboard/logs" class="admin-form">
+						<button type="submit" class="admin-button">Logs</button>
+					</form>
 				{/if}
 			</div>
 		</div>
