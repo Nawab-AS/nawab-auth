@@ -85,6 +85,19 @@ Required for OpenRouter key provisioning and rotation:
 
 - `OPENROUTER_MANAGEMENT_API_KEY`
 
+Required for OpenRouter webhook verification:
+
+- `OPENROUTER_WEBHOOK_SIGNATURE`
+
+Optional for OpenRouter webhook browser-origin allowlist:
+
+- `OPENROUTER_WEBHOOK_ALLOWED_ORIGINS` (default: `https://openrouter.ai`)
+
+In the OpenRouter dashboard, go to observability > webhooks
+> URL: <host>/webhooks/openrouter
+> Method: POST
+> Headers: {"x-webhook-signature": <OPENROUTER_WEBHOOK_SIGNATURE>}
+
 Recommended for stable OIDC tokens across restarts:
 
 - `OIDC_PRIVATE_JWK` (JSON string containing an RSA private JWK with `kid`)
@@ -98,7 +111,7 @@ If your OIDC client is public and does not send a client secret to `/oauth/token
 Use `OTP_ALLOWED_EMAIL_DOMAINS` to restrict OTP login to specific email domains.
 
 - Format: comma-separated domain names (without `@`)
-- Example: `OTP_ALLOWED_EMAIL_DOMAINS=gmail.com,yahoo.com,outlook.com,hotmail.com,icloud.com,nawab-as.dev`
+- Example: `OTP_ALLOWED_EMAIL_DOMAINS=gmail.com,yahoo.com,outlook.com,hotmail.com,icloud.com`
 - If unset or empty, OTP login allows all email domains
 
 ### CORS Configuration for OAuth Endpoints
@@ -191,6 +204,4 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 ## Roadmap (Next)
 
 - Persist OIDC authorization codes and token revocations in Supabase.
-- Add explicit OpenRouter API-side limit synchronization during provisioning/roll.
-- Add one-time cleartext key reveal and recovery UX for end users.
 - Add automated verification email templates and delivery monitoring.

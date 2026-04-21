@@ -14,6 +14,7 @@ const PUBLIC_ROUTES = [
 	'/help',
 	'/oauth/',
 	'/auth/',
+	'/webhooks/',
 	'/terms',
 	'/api/',
 	'/.well-known/'

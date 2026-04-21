@@ -37,7 +37,7 @@ const config = {
 		adapter: adapter(),
 		csrf: {
 			trustedOrigins: dedupedTrustedOrigins,
-			checkOrigin: false
+			checkOrigin: true
 		}
 	}
 };
