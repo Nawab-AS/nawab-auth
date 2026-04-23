@@ -2,7 +2,11 @@ import { redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 import { buildDashboardSnapshot } from '$lib/server/oidc';
-import { getSupabaseUrl, getAccessTokenFromCookies } from '$lib/server/supabase';
+import {
+	createSupabaseAuthedClient,
+	getSupabaseUrl,
+	getAccessTokenFromCookies
+} from '$lib/server/supabase';
 import type { PageServerLoad } from './$types';
 
 const PAGE_SIZE = 50;
@@ -80,9 +84,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	}
 
 	const snapshot = await buildDashboardSnapshot(user, accessToken);
-	if (!snapshot.isAdmin) {
-		throw redirect(303, '/dashboard');
-	}
+	const isAdmin = snapshot.isAdmin;
 
 	const page = parsePageParam(url.searchParams.get('page'));
 	const pageSize = parseLimitParam(url.searchParams.get('limit'));
@@ -102,8 +104,46 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 
 	const from = (page - 1) * pageSize;
 	const to = from + pageSize - 1;
+	let userApiKeyHash: string | null = null;
 
-	const { data, error, count } = await client
+	if (!isAdmin) {
+		const authedClient = createSupabaseAuthedClient(accessToken);
+		const { data, error } = await authedClient
+			.from('user_accounts')
+			.select('api_key_hash')
+			.eq('user_id', user.id)
+			.maybeSingle();
+
+		if (error) {
+			return {
+				logs: [],
+				page,
+				hasPrevious: page > 1,
+				hasNext: false,
+				totalCount: 0,
+				pageSize,
+				error: `Failed to load account API key: ${error.message}`,
+				isAdmin
+			};
+		}
+
+		userApiKeyHash = String((data as { api_key_hash?: string | null } | null)?.api_key_hash ?? '').trim() || null;
+
+		if (!userApiKeyHash) {
+			return {
+				logs: [],
+				page,
+				hasPrevious: page > 1,
+				hasNext: false,
+				totalCount: 0,
+				pageSize,
+				error: null,
+				isAdmin
+			};
+		}
+	}
+
+	let transactionQuery = client
 		.from('transactions')
 		.select(
 			'id, api_key_name, model, end_time, input_cost, output_cost, total_cost, input_tokens, thinking_tokens, response_tokens, finish_reason, created_at',
@@ -111,6 +151,12 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		)
 		.order('end_time', { ascending: false })
 		.range(from, to);
+
+	if (!isAdmin && userApiKeyHash) {
+		transactionQuery = transactionQuery.eq('api_key_name', userApiKeyHash);
+	}
+
+	const { data, error, count } = await transactionQuery;
 
 	if (error) {
 		return {
@@ -147,6 +193,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		hasPrevious: page > 1,
 		hasNext,
 		totalCount,
-		pageSize
+		pageSize,
+		isAdmin
 	};
 };

@@ -80,13 +80,13 @@
 				<form method="POST" action="/logout" class="logout-form">
 					<button type="submit" class="logout-button">Log out</button>
 				</form>
+				<form method="GET" action="/dashboard/logs" class="admin-form">
+					<button type="submit" class="admin-button">Logs</button>
+				</form>
 
 				{#if data.isAdmin}
 					<form method="GET" action="/admin" class="admin-form">
 						<button type="submit" class="admin-button">Admin dashboard</button>
-					</form>
-					<form method="GET" action="/dashboard/logs" class="admin-form">
-						<button type="submit" class="admin-button">Logs</button>
 					</form>
 				{/if}
 			</div>
@@ -97,7 +97,7 @@
 		{#if data.isVerified}
 			<article>
 				<span>Allowed usage</span>
-				<strong>${data.allowedUsageUsd.toFixed(4)}</strong>
+				<strong>{data.allowedUsageUsd !== 0 ? `$${data.allowedUsageUsd.toFixed(4)}` : 'Unlimited'}</strong>
 			</article>
 			<article>
 				<span>Remaining</span>

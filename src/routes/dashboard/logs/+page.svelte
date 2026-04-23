@@ -39,7 +39,7 @@
 
 <main class="page">
 	<header class="header">
-		<h1>Webhook Logs</h1>
+		<h1>{data.isAdmin ? 'Webhook Logs' : 'Usage Logs'}</h1>
 		<form method="GET" action="/dashboard" class="back-form">
 			<button type="submit" class="secondary">Back to dashboard</button>
 		</form>
@@ -50,10 +50,13 @@
 			<p class="error">{data.error}</p>
 		{/if}
 
-		<p class="meta">Showing page {data.page} (max {data.pageSize} rows), total logs: {data.totalCount}</p>
+		<p class="meta">
+			Showing page {data.page} (max {data.pageSize} rows), total logs: {data.totalCount}
+			{data.isAdmin ? '(all users)' : ''}
+		</p>
 
 		{#if data.logs.length === 0}
-			<p>No logs found.</p>
+			<p>{data.isAdmin ? 'No logs found.' : 'No usage logs found for your account yet.'}</p>
 		{:else}
 			<div class="table-wrap">
 				<table>

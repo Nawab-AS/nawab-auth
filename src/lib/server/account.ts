@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
 import type { DashboardSnapshot } from '$lib/server/oidc';
+import { createClient } from '@supabase/supabase-js';
 import {
 	createOpenRouterApiKey,
 	deleteOpenRouterApiKey,
@@ -23,6 +24,21 @@ const INITIAL_ALLOWED_USAGE_USD = 0.0001;
 
 function getServiceRoleKey() {
 	return env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? '';
+}
+
+function createSupabaseServiceRoleClient() {
+	const serviceRoleKey = getServiceRoleKey();
+	if (!serviceRoleKey) {
+		throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for privileged account operations.');
+	}
+
+	return createClient(getSupabaseUrl(), serviceRoleKey, {
+		auth: {
+			autoRefreshToken: false,
+			persistSession: false,
+			detectSessionInUrl: false
+		}
+	});
 }
 
 interface UserProfileRow {
@@ -285,6 +301,7 @@ async function ensureUserVerified(userId: string, accessToken: string) {
 
 async function ensureUserProfileRecord(userId: string, accessToken: string) {
 	const client = createSupabaseAuthedClient(accessToken);
+	const privilegedClient = createSupabaseServiceRoleClient();
 	const { data, error: selectError } = await client
 		.from('user_profiles')
 		.select('user_id')
@@ -299,7 +316,7 @@ async function ensureUserProfileRecord(userId: string, accessToken: string) {
 		return;
 	}
 
-	const { error: insertError } = await client.from('user_profiles').insert({
+	const { error: insertError } = await privilegedClient.from('user_profiles').insert({
 		user_id: userId,
 		preferred_name: null,
 		user_state: 'unverified',
@@ -314,6 +331,7 @@ async function ensureUserProfileRecord(userId: string, accessToken: string) {
 
 async function ensureUserAccountRecord(userId: string, accessToken: string) {
 	const client = createSupabaseAuthedClient(accessToken);
+	const privilegedClient = createSupabaseServiceRoleClient();
 	const { data, error: selectError } = await client
 		.from('user_accounts')
 		.select('user_id')
@@ -328,7 +346,7 @@ async function ensureUserAccountRecord(userId: string, accessToken: string) {
 		return;
 	}
 
-	const { error: insertError } = await client.from('user_accounts').insert({
+	const { error: insertError } = await privilegedClient.from('user_accounts').insert({
 		user_id: userId,
 		api_key_hash: null,
 		api_key_fingerprint: null,
@@ -685,6 +703,7 @@ export async function rollApiKey(userId: string, accessToken: string) {
 	await ensureUserVerified(userId, accessToken);
 	await ensureUserAccountRecord(userId, accessToken);
 	const client = createSupabaseAuthedClient(accessToken);
+	const privilegedClient = createSupabaseServiceRoleClient();
 	const { data: account, error: accountError } = await client
 		.from('user_accounts')
 		.select('api_key_hash,api_key_fingerprint,api_key_disabled,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd')
@@ -716,7 +735,7 @@ export async function rollApiKey(userId: string, accessToken: string) {
 
 	const roll = await buildApiKeyRollResult(newKey.keyValue);
 
-	const { error } = await client
+	const { error } = await privilegedClient
 		.from('user_accounts')
 		.update({
 			api_key_hash: newKey.hash,
@@ -756,6 +775,7 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 
 	await ensureUserAccountRecord(userId, accessToken);
 	const client = createSupabaseAuthedClient(accessToken);
+	const privilegedClient = createSupabaseServiceRoleClient();
 	const { data: account, error: accountError } = await client
 		.from('user_accounts')
 		.select('allowed_usage_usd,usage_carried_forward_usd,api_key_hash')
@@ -784,7 +804,7 @@ export async function generateApiKeyForOidcLogin(userId: string, accessToken: st
 
 	const roll = await buildApiKeyRollResult(newKey.keyValue);
 
-	const { error } = await client
+	const { error } = await privilegedClient
 		.from('user_accounts')
 		.update({
 			api_key_hash: newKey.hash,
@@ -955,6 +975,7 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 	await ensureUserAccountRecord(userId, accessToken);
 
 	const client = createSupabaseAuthedClient(accessToken);
+	const privilegedClient = createSupabaseServiceRoleClient();
 	const [profileResult, accountResult] = await Promise.all([
 		client
 			.from('user_profiles')
@@ -989,14 +1010,14 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 		);
 
 		const [{ error: accountUpdateError }, { error: profileUpdateError }] = await Promise.all([
-			client
+			privilegedClient
 				.from('user_accounts')
 				.update({
 					provisioned_usage_limit_usd: provisionedLimit,
 					api_key_disabled: false
 				})
 				.eq('user_id', userId),
-			client
+			privilegedClient
 				.from('user_profiles')
 				.update({ first_sso_completed: true })
 				.eq('user_id', userId)
@@ -1029,7 +1050,7 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 	const roll = await buildApiKeyRollResult(newKey.keyValue);
 
 	const [{ error: accountUpdateError }, { error: profileUpdateError }] = await Promise.all([
-		client
+		privilegedClient
 			.from('user_accounts')
 			.update({
 				api_key_hash: newKey.hash,
@@ -1038,7 +1059,7 @@ export async function provisionApiKeyForFirstSso(userId: string, accessToken: st
 				api_key_disabled: false
 			})
 			.eq('user_id', userId),
-		client
+		privilegedClient
 			.from('user_profiles')
 			.update({ first_sso_completed: true })
 			.eq('user_id', userId)

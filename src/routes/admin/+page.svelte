@@ -98,6 +98,36 @@
 		return 'Assigned';
 	}
 
+	function formatUsageSummary(usedUsd: number, allowedUsd: number): string {
+		const allowedLabel = allowedUsd === 0 ? 'Unlimited' : `$${allowedUsd.toFixed(4)}`;
+		return `$${usedUsd.toFixed(4)}/${allowedLabel}`;
+	}
+
+	function getUsageMoneyTone(usedUsd: number, allowedUsd: number, disabled: boolean): string {
+		if (disabled || allowedUsd === 0) {
+			return 'blue';
+		}
+
+		if (usedUsd <= 0) {
+			return 'white';
+		}
+
+		const usageRatio = usedUsd / allowedUsd;
+		if (usageRatio < 0.4) {
+			return 'green';
+		}
+
+		if (usageRatio < 0.8) {
+			return 'orange';
+		}
+
+		if (usageRatio < 1) {
+			return 'red';
+		}
+
+		return 'blue';
+	}
+
 	function getUsageTone(remaining: number) {
 		if (remaining <= 0) {
 			return 'danger';
@@ -239,7 +269,14 @@
 									<span class="key-pill">{getApiKeyState(row.apiKeyAssigned, row.apiKeyDisabled)}</span>
 								</span>
 								<span class="user-email">{data.emailByUserId[row.userId] ? (data.emailByUserId[row.userId]?.split('@')[0].slice(0, 3)+"****@"+data.emailByUserId[row.userId]?.split('@')[1]) : 'No Email'}</span>
-								<span class="user-name">{row.preferredName ?? 'Unspecified'}</span>
+								<span class="user-name">
+									<span class="user-name-text">{row.preferredName ?? 'Unspecified'}</span>
+									<span
+										class={`user-usage usage-${getUsageMoneyTone(row.usageCarriedForwardUsd, row.allowedUsageUsd, row.apiKeyDisabled)}`}
+									>
+										{formatUsageSummary(row.usageCarriedForwardUsd, row.allowedUsageUsd)}
+									</span>
+								</span>
 								<span class="flag-list">
 									<span class="flag">{row.userState}</span>
 									{#if row.isAdmin && row.userState !== 'admin'}
@@ -635,11 +672,44 @@
 	}
 
 	.user-name {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
 		font-size: 0.84rem;
 		color: #9ca3af;
+		min-width: 0;
+	}
+
+	.user-name-text {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.user-usage {
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.usage-white {
+		color: #e5e7eb;
+	}
+
+	.usage-green {
+		color: #b6f7db;
+	}
+
+	.usage-orange {
+		color: #ffe2ad;
+	}
+
+	.usage-red {
+		color: #ffc0bf;
+	}
+
+	.usage-blue {
+		color: #8fc7ff;
 	}
 
 	.empty {

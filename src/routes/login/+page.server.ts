@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import { fail, isRedirect, redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
@@ -19,6 +20,7 @@ import {
 import { getOAuthSettings } from '$lib/server/oauth-settings';
 import { getErrorMessage, normalizeReturnToPath } from '$lib/server/http';
 import { getIssuer } from '$lib/server/oidc';
+import { encodeProxyApiKey } from '$lib/server/key-obfuscation';
 import type { Cookies } from '@sveltejs/kit';
 
 const OTP_COOLDOWN_MS = 45_000;
@@ -346,12 +348,16 @@ export const actions: Actions = {
 
 		try {
 			const generatedApiKey = await generateApiKeyForOidcLogin(user.id, accessToken);
+			const obfuscatedApiKey = generatedApiKey ? encodeProxyApiKey(generatedApiKey) : null;
+			if (obfuscatedApiKey === 'ERROR-INVALID-PREFIX') {
+				throw new Error('Failed to encode API key.');
+			}
 			const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
 			return {
 				returnTo,
 				signedIn: true,
 				oidcGate,
-				generatedApiKey,
+				generatedApiKey: obfuscatedApiKey,
 				gateMessage: generatedApiKey
 					? 'API key generated. Copy it now. it will not be shown again.'
 					: 'API key already exists.'

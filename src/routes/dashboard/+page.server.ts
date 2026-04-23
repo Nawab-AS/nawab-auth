@@ -5,6 +5,7 @@ import { getOAuthSettings, getProviderDisplayName } from '$lib/server/oauth-sett
 import { getLinkedProviders, revokeLinkedProvider } from '$lib/server/providers';
 import { rollApiKey, setApiKeyDisabled } from '$lib/server/account';
 import { getErrorMessage, parseBoolean } from '$lib/server/http';
+import { encodeProxyApiKey } from '$lib/server/key-obfuscation';
 import type { Provider } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -77,9 +78,14 @@ export const actions: Actions = {
 
 		try {
 			const rolledKey = await rollApiKey(user.id, accessToken);
+			const obfuscatedRolledKey = encodeProxyApiKey(rolledKey);
+			if (obfuscatedRolledKey === 'ERROR-INVALID-PREFIX') {
+				throw new Error('Failed to encode API key.');
+			}
+
 			return {
 				rollMessage: 'API key rolled.',
-				rolledKey
+				rolledKey: obfuscatedRolledKey
 			};
 		} catch (error) {
 			return fail(400, { rollMessage: getErrorMessage(error, 'Failed to roll API key.') });
