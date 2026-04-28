@@ -147,10 +147,6 @@
 			{#if form?.keyMessage}
 				<p class="notice">{form.keyMessage}</p>
 			{/if}
-
-			<form method="GET" action="/help">
-				<button type="submit" class="secondary">Help</button>
-			</form>
 		</div>
 
 		<div class="panel">
@@ -185,6 +181,13 @@
 				<p class="notice">{form.providerMessage}</p>
 			{/if}
 		</div>
+	</section>
+
+	<section class="support-callout" aria-label="Support contact">
+		<p>
+			Need help with your account? Contact support at
+			<a href={`mailto:${data.supportEmail}`}>{data.supportEmail}</a>.
+		</p>
 	</section>
 
 	{#if showRolledKeyDialog}
@@ -421,6 +424,30 @@
 
 	.notice {
 		margin-top: 1rem;
+	}
+
+	.support-callout {
+		margin-top: 1.25rem;
+		padding: 1rem 1.15rem;
+		border-radius: 0.75rem;
+		border: 1px solid rgba(245, 183, 106, 0.6);
+		background: linear-gradient(135deg, rgba(245, 183, 106, 0.16), rgba(245, 183, 106, 0.05));
+	}
+
+	.support-callout p {
+		margin: 0;
+		font-weight: 600;
+		color: #f7d8ac;
+	}
+
+	.support-callout a {
+		color: #ffd89f;
+		text-decoration-thickness: 2px;
+		text-underline-offset: 0.18em;
+	}
+
+	.support-callout a:hover {
+		color: #ffe5bf;
 	}
 
 	.api-key-overlay {

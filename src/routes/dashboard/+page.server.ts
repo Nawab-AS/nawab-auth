@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { buildDashboardSnapshot } from '$lib/server/oidc';
 import { createSupabaseAuthedClient, getAccessTokenFromCookies } from '$lib/server/supabase';
 import { getOAuthSettings, getProviderDisplayName } from '$lib/server/oauth-settings';
@@ -68,6 +69,7 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 		user,
 		...snapshot,
 		providers,
+		supportEmail: env.SUPPORT_EMAIL?.trim() || 'support@example.com',
 		rolled: url.searchParams.get('rolled') === '1'
 	};
 };
