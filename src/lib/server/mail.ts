@@ -23,10 +23,20 @@ function buildTextBody(input: VerificationEmailInput): string {
 		`Hi ${name},`,
 		'',
 		'Your Nawab Auth account has been verified by an admin.',
-		'You can now use \'Login with Nawab Auth\' to access allowed services.',
+		"You can now use 'Login with Nawab Auth' to access allowed services.",
 		'',
 		`If this was unexpected, contact support at ${getSupportEmail()}.`
 	].join('\n');
+}
+
+function buildHtmlBody(input: VerificationEmailInput): string {
+	const text = buildTextBody(input)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;');
+
+	// Use HTML content so Resend can inject its open-tracking pixel (if enabled in your Resend settings).
+	return `<p style="white-space: pre-wrap;">${text}</p>`;
 }
 
 export async function sendVerificationEmail(input: VerificationEmailInput): Promise<boolean> {
@@ -37,6 +47,7 @@ export async function sendVerificationEmail(input: VerificationEmailInput): Prom
 		return false;
 	}
 
+	const textBody = buildTextBody(input);
 	const response = await fetch('https://api.resend.com/emails', {
 		method: 'POST',
 		headers: {
@@ -47,7 +58,9 @@ export async function sendVerificationEmail(input: VerificationEmailInput): Prom
 			from,
 			to: [input.to],
 			subject: 'Your Nawab Auth account is verified',
-			text: buildTextBody(input)
+			// Adding HTML allows Resend to inject the tracking pixel (open tracking), when enabled on your Resend account.
+			html: buildHtmlBody(input),
+			text: textBody
 		})
 	});
 
