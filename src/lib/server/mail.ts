@@ -49,14 +49,13 @@ function buildHtmlBody(input: VerificationEmailInput): string {
 
 	// Linkify http/https URLs.
 	text = text.replace(
-		/(https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+)/g,
-		'<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+		/(https?:\/\/[\w\-._~:\/?#[\]@!$&'()*+,;=%]+)\)/g,
+		'<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>)'
 	);
 
 	// Convert raw email addresses into mailto links.
-	// Negative lookbehind avoids converting the email inside `href="mailto:..."` if linkified twice.
 	text = text.replace(
-		/(?<!href="mailto:")\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi,
+		/mailto:([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi,
 		'<a href="mailto:$1">$1</a>'
 	);
 
