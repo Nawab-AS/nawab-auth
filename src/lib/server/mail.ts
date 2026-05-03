@@ -36,7 +36,7 @@ function buildTextBody(input: VerificationEmailInput): string {
 		'Signed,',
 		' - The Nawab Chat admin team',
 		'',
-		`If this was unexpected, contact support at ${getSupportEmail()}.`
+		`If this was unexpected, contact support at mailto:${getSupportEmail()}.`
 	].join('\n');
 }
 
