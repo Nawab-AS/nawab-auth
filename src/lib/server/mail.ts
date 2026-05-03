@@ -25,7 +25,7 @@ function buildTextBody(input: VerificationEmailInput): string {
 		'Your Nawab Auth account has been verified! You’re almost ready to go.',
 		'',
 		'Next Steps:',
-		'1. Go to Nawab Chat(https://chat.nawab-as.dev and click "Sign in with Nawab Auth"',
+		'1. Go to Nawab Chat (https://chat.nawab-as.dev) and click "Sign in with Nawab Auth"',
 		'2. Create an API key and copy it. Treat this like a password, don\'t share it with anyone',
 		'3. Approve signing into Nawab Chat. You will now be redirected to the Nawab Chat homepage',
 		'4. Open the "set API key" menu (open the model seletor and hover over the gear icon) and paste the API key that you just copied',
