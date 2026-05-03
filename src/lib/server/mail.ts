@@ -26,7 +26,7 @@ function buildTextBody(input: VerificationEmailInput): string {
 		'',
 		'Next Steps:',
 		'1. Go to Nawab Chat (https://chat.nawab-as.dev) and click "Sign in with Nawab Auth"',
-		'2. Create an API key and copy it. Treat this like a password, don\'t share it with anyone',
+		"2. Create an API key and copy it. Treat this like a password, don't share it with anyone",
 		'3. Approve signing into Nawab Chat. You will now be redirected to the Nawab Chat homepage',
 		'4. Open the "set API key" menu (open the model seletor and hover over the gear icon) and paste the API key that you just copied',
 		'5. Enjoy access to a library of 300+ LLMs',
@@ -40,12 +40,25 @@ function buildTextBody(input: VerificationEmailInput): string {
 	].join('\n');
 }
 
-
 function buildHtmlBody(input: VerificationEmailInput): string {
-	const text = buildTextBody(input)
+	// Escape first to avoid HTML injection, then linkify the escaped text.
+	let text = buildTextBody(input)
 		.replace(/&/g, '&amp;')
 		.replace(/</g, '&lt;')
 		.replace(/>/g, '&gt;');
+
+	// Linkify http/https URLs.
+	text = text.replace(
+		/(https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+)/g,
+		'<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+	);
+
+	// Convert raw email addresses into mailto links.
+	// Negative lookbehind avoids converting the email inside `href="mailto:..."` if linkified twice.
+	text = text.replace(
+		/(?<!href="mailto:")\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi,
+		'<a href="mailto:$1">$1</a>'
+	);
 
 	// Use HTML content so Resend can inject its open-tracking pixel (if enabled in your Resend settings).
 	return `<p style="white-space: pre-wrap;">${text}</p>`;
