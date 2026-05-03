@@ -22,12 +22,24 @@ function buildTextBody(input: VerificationEmailInput): string {
 	return [
 		`Hi ${name},`,
 		'',
-		'Your Nawab Auth account has been verified by an admin.',
-		"You can now use 'Login with Nawab Auth' to access allowed services.",
+		'Your Nawab Auth account has been verified! You’re almost ready to go.',
 		'',
-		`If this was unexpected, contact support at ${getSupportEmail()}.`
+		'Next Steps:',
+		'1. Go to <a href="https://chat.nawab-as.dev">Nawab Chat</a> and click "Sign in with Nawab Auth"',
+		'2. Create an API key and copy it. Treat this like a password, don\'t share it with anyone',
+		'3. Approve signing into Nawab Chat. You will now be redirected to the Nawab Chat homepage',
+		'4. Open the "set API key" menu (open the model seletor and hover over the gear icon) and paste the API key that you just copied',
+		'5. Enjoy access to a library of 300+ LLMs',
+		'',
+		'Thank you for using Nawab Chat',
+		'',
+		'Signed,',
+		' - The Nawab Chat admin team',
+		'',
+		`If this was unexpected, contact support at <a href="mailto:${getSupportEmail()}">${getSupportEmail()}</a>.`
 	].join('\n');
 }
+
 
 function buildHtmlBody(input: VerificationEmailInput): string {
 	const text = buildTextBody(input)
