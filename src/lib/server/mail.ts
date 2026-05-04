@@ -80,7 +80,7 @@ export async function sendVerificationEmail(input: VerificationEmailInput): Prom
 		body: JSON.stringify({
 			from,
 			to: [input.to],
-			subject: 'Your Nawab Auth account is verified',
+			subject: 'Your Nawab Chat account is verified',
 			// Adding HTML allows Resend to inject the tracking pixel (open tracking), when enabled on your Resend account.
 			html: buildHtmlBody(input),
 			text: textBody
