@@ -12,7 +12,12 @@ import {
 } from '$lib/server/account';
 import { getProviderDisplayName } from '$lib/server/oauth-settings';
 import { getLinkedProviders, revokeLinkedProvider } from '$lib/server/providers';
-import { getAdminUserEmail, getAdminUserProviders, revokeProviderForUser } from '$lib/server/admin-auth';
+import {
+	generateImpersonationMagicLink,
+	getAdminUserEmail,
+	getAdminUserProviders,
+	revokeProviderForUser
+} from '$lib/server/admin-auth';
 import { sendVerificationEmail } from '$lib/server/mail';
 import { getErrorMessage, parseBoolean } from '$lib/server/http';
 import { getAccessTokenFromCookies } from '$lib/server/supabase';
@@ -244,6 +249,36 @@ export const actions: Actions = {
 			return { actionMessage: `Permanently deleted ${userId} and removed associated data.` };
 		} catch (error) {
 			return failAction(getErrorMessage(error, 'Failed to permanently delete account.'));
+		}
+	},
+	impersonateUser: async ({ locals, cookies, request, url }) => {
+		await requireAdminAccess(locals, cookies);
+
+		const formData = await request.formData();
+		const userId = String(formData.get('userId') ?? '').trim();
+
+		if (!userId) {
+			return failAction('User ID is required.');
+		}
+
+		try {
+			const email = await getAdminUserEmail(userId);
+			if (!email) {
+				return failAction('Unable to resolve email for impersonation.');
+			}
+
+			const redirectTo = new URL('/auth/callback?redirect_to=%2Fdashboard', url.origin).toString();
+			const impersonationUrl = await generateImpersonationMagicLink(email, redirectTo);
+			if (!impersonationUrl) {
+				return failAction('Impersonation requires SUPABASE_SERVICE_ROLE_KEY.');
+			}
+
+			return {
+				actionMessage: `Generated impersonation link for ${userId}.`,
+				impersonationUrl
+			};
+		} catch (error) {
+			return failAction(getErrorMessage(error, 'Failed to generate impersonation link.'));
 		}
 	}
 };

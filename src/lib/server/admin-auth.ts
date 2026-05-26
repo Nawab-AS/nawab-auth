@@ -14,6 +14,10 @@ interface AdminUserResponse {
 	identities?: AdminIdentity[];
 }
 
+interface AdminGenerateLinkResponse {
+	action_link?: string;
+}
+
 function mapProviders(identities: AdminIdentity[] | undefined): LinkedProvider[] {
 	return (identities ?? [])
 		.map((identity) => ({
@@ -100,4 +104,36 @@ export async function revokeProviderForUser(userId: string, provider: string): P
 	}
 
 	return true;
+}
+
+export async function generateImpersonationMagicLink(
+	email: string,
+	redirectTo: string
+): Promise<string | null> {
+	const serviceRoleKey = getServiceRoleKey();
+	if (!serviceRoleKey) {
+		return null;
+	}
+
+	const url = new URL('/auth/v1/admin/generate_link', getSupabaseUrl());
+	url.searchParams.set('redirect_to', redirectTo);
+	const response = await fetch(url.toString(), {
+		method: 'POST',
+		headers: createAdminHeaders(serviceRoleKey),
+		body: JSON.stringify({
+			type: 'magiclink',
+			email
+		})
+	});
+
+	if (!response.ok) {
+		throw new Error(`Failed to generate impersonation link: ${response.status} ${response.statusText}`);
+	}
+
+	const payload = (await response.json()) as AdminGenerateLinkResponse;
+	if (!payload.action_link) {
+		throw new Error('Supabase did not return an impersonation link.');
+	}
+
+	return payload.action_link;
 }

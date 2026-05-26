@@ -169,6 +169,15 @@
 			}
 		};
 	};
+
+	async function copyImpersonationLink(link: string) {
+		try {
+			await navigator.clipboard.writeText(link);
+			showSuccessToastMessage('Impersonation link copied.');
+		} catch {
+			showSuccessToastMessage('Failed to copy impersonation link.');
+		}
+	}
 </script>
 
 <svelte:head>
@@ -308,6 +317,30 @@
 								<span class="flag flag-ban">Banned</span>
 							{/if}
 						</div>
+						<div class="selected-actions">
+							{#if typeof form?.impersonationUrl === 'string'}
+								<div class="impersonation-link">
+									<input
+										type="text"
+										readonly
+										value={form.impersonationUrl}
+										aria-label="Impersonation link"
+									/>
+									<button
+										type="button"
+										class="ghost-link"
+										onclick={() => copyImpersonationLink(form.impersonationUrl)}
+									>
+										Copy link
+									</button>
+								</div>
+							{:else}
+								<form method="POST" action="?/impersonateUser" use:enhance={enhanceAdminAction}>
+									<input type="hidden" name="userId" value={selectedRow.userId} />
+									<button type="submit" class="outline">Impersonate</button>
+								</form>
+							{/if}
+						</div>
 					</article>
 
 					<div class="detail-grid">
@@ -393,6 +426,7 @@
 								<button type="submit" class="danger">Delete account</button>
 							</form>
 						</article>
+
 					</div>
 				{:else}
 					<article class="detail-card empty-detail">
@@ -545,6 +579,7 @@
 		display: grid;
 		gap: 0.9rem;
 		align-self: start;
+		min-height: 0;
 	}
 
 	.details-pane {
@@ -557,6 +592,9 @@
 		max-height: 64vh;
 		overflow: auto;
 		padding-right: 0.25rem;
+		grid-auto-rows: max-content;
+		align-content: start;
+		min-height: 0;
 	}
 
 	.toolbar {
@@ -578,6 +616,15 @@
 	}
 
 	input[type='search'] {
+		padding: 0.68rem 0.82rem;
+		border-radius: 0.6rem;
+		border: 1px solid #3b4250;
+		background: #15181e;
+		color: var(--text);
+		font: inherit;
+	}
+
+	input[type='text'] {
 		padding: 0.68rem 0.82rem;
 		border-radius: 0.6rem;
 		border: 1px solid #3b4250;
@@ -779,6 +826,12 @@
 		gap: 0.15rem;
 	}
 
+	.selected-actions {
+		display: grid;
+		gap: 0.6rem;
+		margin-top: 0.4rem;
+	}
+
 	.empty-detail {
 		min-height: 180px;
 		align-content: center;
@@ -790,6 +843,12 @@
 		color: var(--muted);
 	}
 
+	.helper {
+		margin: 0;
+		color: var(--muted);
+		font-size: 0.85rem;
+	}
+
 	.action-card {
 		display: grid;
 		gap: 0.6rem;
@@ -798,6 +857,11 @@
 	.action-card form {
 		display: grid;
 		gap: 0.45rem;
+	}
+
+	.impersonation-link {
+		display: grid;
+		gap: 0.6rem;
 	}
 
 	.provider-list {
