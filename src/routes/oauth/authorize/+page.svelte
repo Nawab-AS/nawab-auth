@@ -1,22 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
 	let watchedInSession = $state(false);
-	let autoApproved = $state(false);
 
 	const mustWatchVideo = $derived(!data.ssoState.firstSsoCompleted && !data.ssoState.videoWatched);
 	const videoWatched = $derived(data.ssoState.videoWatched || data.ssoState.firstSsoCompleted || watchedInSession);
 	const approveDisabled = $derived(!data.ssoState.isVerified || (mustWatchVideo && !videoWatched));
-
-	onMount(() => {
-		const approveButton = document.querySelector<HTMLButtonElement>('[data-auto-approve]');
-		if (approveButton && !approveDisabled && !autoApproved) {
-			autoApproved = true;
-			approveButton.click();
-		}
-	});
 </script>
 
 <svelte:head>
@@ -77,7 +67,7 @@
 					<input type="hidden" name="redirect_uri" value={data.redirectUri} />
 					<input type="hidden" name="state" value={data.state} />
 					<input type="hidden" name="watched_video" value={videoWatched ? 'true' : 'false'} />
-					<button data-auto-approve type="submit" class="primary" disabled={approveDisabled}>
+					<button type="submit" class="primary" disabled={approveDisabled}>
 						{approveDisabled && mustWatchVideo ? 'Watch the video first' : 'Approve'}
 					</button>
 				</form>

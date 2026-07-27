@@ -177,6 +177,35 @@ async function validateVideoGateCookie(input: {
 	return true;
 }
 
+async function createAuthorizationRedirect(input: {
+	user: { id: string; email: string; emailVerified: boolean };
+	accessToken: string;
+	clientId: string;
+	redirectUri: string;
+	scopes: SupportedScope[];
+	state: string;
+	nonce?: string;
+	codeChallenge?: string;
+}) {
+	const preferredName = await getUserPreferredName(input.user.id, input.accessToken);
+	const code = await createAuthorizationCode({
+		identity: {
+			id: input.user.id,
+			email: input.user.email,
+			emailVerified: input.user.emailVerified,
+			name: preferredName,
+			preferredUsername: preferredName
+		},
+		clientId: input.clientId,
+		redirectUri: input.redirectUri,
+		scopes: input.scopes,
+		nonce: input.nonce,
+		codeChallenge: input.codeChallenge
+	});
+
+	throw redirect(303, appendQueryParams(input.redirectUri, { code, state: input.state }));
+}
+
 export const load = async ({ url, cookies }) => {
 	const clientId = url.searchParams.get('client_id')?.trim() ?? '';
 	const redirectUri =
@@ -204,6 +233,10 @@ export const load = async ({ url, cookies }) => {
 
 	if (codeChallengeMethod && codeChallengeMethod !== 'S256') {
 		throw error(400, 'PKCE must use S256');
+	}
+
+	if (!state) {
+		throw error(400, 'Missing state');
 	}
 
 	const user = await getSupabaseUserFromCookies(cookies);
@@ -242,6 +275,19 @@ export const load = async ({ url, cookies }) => {
 		cookies.delete(VIDEO_GATE_COOKIE_NAME, { path: '/oauth/authorize' });
 	}
 
+	if (gateState.canProceedToOidc && ssoState.firstSsoCompleted && ssoState.videoWatched) {
+		cookies.delete(VIDEO_GATE_COOKIE_NAME, { path: '/oauth/authorize' });
+		await createAuthorizationRedirect({
+			user,
+			accessToken,
+			clientId,
+			redirectUri,
+			scopes: scope as SupportedScope[],
+			state,
+			nonce: nonce || undefined,
+			codeChallenge: codeChallenge || undefined
+		});
+	}
 
 	return {
 		user,
@@ -341,25 +387,16 @@ export const actions = {
 			await provisionApiKeyForFirstSso(user.id, accessToken);
 		}
 
-		// OIDC names must come only from user_profiles.preferred_name.
-		const preferredName = await getUserPreferredName(user.id, accessToken);
-
-		const code = await createAuthorizationCode({
-			identity: {
-				id: user.id,
-				email: user.email,
-				emailVerified: user.emailVerified,
-				name: preferredName,
-				preferredUsername: preferredName
-			},
+		await createAuthorizationRedirect({
+			user,
+			accessToken,
 			clientId,
 			redirectUri,
 			scopes: scopes as SupportedScope[],
+			state,
 			nonce,
 			codeChallenge
 		});
-
-		throw redirect(303, appendQueryParams(redirectUri, { code, state }));
 	},
 	deny: async ({ request, url }) => {
 		const formData = await request.formData();
