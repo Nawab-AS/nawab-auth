@@ -1,8 +1,8 @@
 import { redirect, type RequestHandler } from '@sveltejs/kit';
-import { clearSupabaseAccessCookie } from '$lib/server/supabase';
+import { clearSupabaseSessionCookies } from '$lib/server/supabase';
 
 const signOutAndRedirect: RequestHandler = async ({ cookies }) => {
-	clearSupabaseAccessCookie(cookies);
+	clearSupabaseSessionCookies(cookies);
 	cookies.delete('auth_return_to', { path: '/' });
 	throw redirect(303, '/login');
 };

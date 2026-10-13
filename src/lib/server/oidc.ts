@@ -494,7 +494,7 @@ export async function issueTokenSet(input: { claims: TokenClaims; clientId: stri
 					client_id: input.clientId,
 					token_use: 'refresh'
 				},
-				{ audience: input.clientId, expiresIn: '30d', tokenId: refreshTokenId }
+				{ audience: input.clientId, expiresIn: '180d', tokenId: refreshTokenId }
 			)
 		: null;
 

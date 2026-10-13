@@ -6,7 +6,7 @@ import {
 	isUserOnboarded,
 	isUserBanned
 } from '$lib/server/account';
-import { getSupabaseUserFromAccessToken, setSupabaseAccessCookie } from '$lib/server/supabase';
+import { getSupabaseUserFromAccessToken, refreshSupabaseSession, setSupabaseSessionCookies } from '$lib/server/supabase';
 import { normalizeReturnToPath, readFormOrJsonBody } from '$lib/server/http';
 import type { RequestHandler } from '@sveltejs/kit';
 
@@ -46,6 +46,7 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 	try {
 		const body = await readFormOrJsonBody(request);
 		const accessToken = typeof body.accessToken === 'string' ? body.accessToken.trim() : '';
+		const incomingRefreshToken = typeof body.refreshToken === 'string' ? body.refreshToken.trim() : '';
 		const otpToken = typeof body.otpToken === 'string' ? body.otpToken.trim() : '';
 		const otpType = typeof body.otpType === 'string' ? body.otpType.trim() : '';
 		const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
@@ -81,6 +82,7 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 		});
 
 		let token: string | null = null;
+		let refreshTokenToStore: string | null = null;
 
 		if (otpToken && otpType === 'recovery') {
 			// Handle OTP verification
@@ -110,6 +112,7 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 			}
 
 			token = data.session?.access_token ?? null;
+			refreshTokenToStore = data.session?.refresh_token ?? null;
 		} else if (accessToken) {
 			// Handle OAuth tokens - validate they're legitimate
 			const user = await getSupabaseUserFromAccessToken(accessToken);
@@ -135,8 +138,17 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 			);
 		}
 
-		// Set the access token cookie
-		setSupabaseAccessCookie(cookies, token);
+		// Set the session cookies. When the OAuth flow supplied a refresh token,
+		// rotate it once to prove it is valid; fall back to access-only on failure.
+		if (incomingRefreshToken) {
+			const rotated = await refreshSupabaseSession(incomingRefreshToken);
+			if (rotated) {
+				token = rotated.accessToken;
+				refreshTokenToStore = rotated.refreshToken;
+			}
+		}
+
+		setSupabaseSessionCookies(cookies, token, refreshTokenToStore);
 
 		const resolvedUser = await getSupabaseUserFromAccessToken(token);
 		if (resolvedUser && !(await isUserOnboarded(resolvedUser.id, token))) {

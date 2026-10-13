@@ -13,6 +13,10 @@ export interface SupabaseSessionUser {
 }
 
 const ACCESS_COOKIE = 'sb_access_token';
+const REFRESH_COOKIE = 'sb_refresh_token';
+// Refresh cookie cap: sessions can stay alive up to ~6 months through rotation.
+// The access cookie stays short-lived; hooks.server.ts refreshes it on demand.
+const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 180;
 
 export function getSupabaseUrl() {
 	const url = env.SUPABASE_URL?.trim() || publicEnv.PUBLIC_SUPABASE_URL?.trim();
@@ -91,6 +95,61 @@ export function getAccessTokenFromCookies(cookies: Cookies) {
 	return cookies.get(ACCESS_COOKIE)?.trim() ?? null;
 }
 
+export function getRefreshTokenFromCookies(cookies: Cookies) {
+	return cookies.get(REFRESH_COOKIE)?.trim() ?? null;
+}
+
+export async function refreshSupabaseSession(
+	refreshToken: string
+): Promise<{ accessToken: string; refreshToken: string; user: SupabaseSessionUser } | null> {
+	if (!refreshToken) {
+		return null;
+	}
+
+	const supabase = createSupabaseClient();
+	const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+	if (error || !data.session?.access_token || !data.user) {
+		return null;
+	}
+
+	const fallbackName =
+		data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? data.user.email ?? data.user.id;
+	const name = await resolveSupabaseUserName(data.user.id, data.session.access_token, fallbackName);
+
+	return {
+		accessToken: data.session.access_token,
+		refreshToken: data.session.refresh_token,
+		user: {
+			id: data.user.id,
+			email: data.user.email ?? '',
+			emailVerified: Boolean(data.user.email_confirmed_at),
+			name,
+			isAdmin: data.user.user_metadata?.isAdmin === true || data.user.user_metadata?.role === 'admin'
+		}
+	};
+}
+
+export function setSupabaseRefreshCookie(cookies: Cookies, refreshToken: string) {
+	cookies.set(REFRESH_COOKIE, refreshToken, {
+		path: '/',
+		httpOnly: true,
+		sameSite: 'lax',
+		secure: !dev,
+		maxAge: REFRESH_COOKIE_MAX_AGE
+	});
+}
+
+export function setSupabaseSessionCookies(
+	cookies: Cookies,
+	accessToken: string,
+	refreshToken: string | null
+) {
+	setSupabaseAccessCookie(cookies, accessToken);
+	if (refreshToken) {
+		setSupabaseRefreshCookie(cookies, refreshToken);
+	}
+}
+
 export async function getSupabaseUserFromAccessToken(accessToken: string): Promise<SupabaseSessionUser | null> {
 	if (!accessToken) {
 		return null;
@@ -163,6 +222,7 @@ export function setSupabaseAccessCookie(cookies: Cookies, accessToken: string) {
 	});
 }
 
-export function clearSupabaseAccessCookie(cookies: Cookies) {
+export function clearSupabaseSessionCookies(cookies: Cookies) {
 	cookies.delete(ACCESS_COOKIE, { path: '/' });
+	cookies.delete(REFRESH_COOKIE, { path: '/' });
 }

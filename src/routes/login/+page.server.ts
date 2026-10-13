@@ -5,7 +5,8 @@ import {
 	getAccessTokenFromCookies,
 	getSupabaseAnonKey,
 	getSupabaseUrl,
-	setSupabaseAccessCookie
+	setSupabaseAccessCookie,
+	setSupabaseRefreshCookie
 } from '$lib/server/supabase';
 import { isOtpEmailDomainAllowed } from '$lib/server/auth';
 import {
@@ -279,6 +280,9 @@ export const actions: Actions = {
 			}
 
 			setSupabaseAccessCookie(cookies, data.session.access_token);
+			if (data.session.refresh_token) {
+				setSupabaseRefreshCookie(cookies, data.session.refresh_token);
+			}
 
 			const accessToken = getAccessTokenFromCookies(cookies);
 			const onboarded = await isUserOnboarded(data.user.id, accessToken);

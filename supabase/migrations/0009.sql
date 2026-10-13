@@ -22,7 +22,7 @@ alter table public.oidc_one_time_codes enable row level security;
 alter table public.oidc_revoked_tokens enable row level security;
 
 -- Support pruning of rows whose code/token has expired (codes expire in
--- 10 minutes, access tokens in 1 hour, refresh tokens in 30 days).
+-- 10 minutes, access tokens in 1 hour, refresh tokens in 180 days).
 create index if not exists oidc_one_time_codes_used_at_idx
 	on public.oidc_one_time_codes (used_at);
 

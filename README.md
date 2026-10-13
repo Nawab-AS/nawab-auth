@@ -180,5 +180,5 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 - Set the onboarding video in `/static/onboarding.mp4`
 ## Roadmap (Next)
 
-- Prune expired rows from `oidc_one_time_codes` (codes expire in 10 minutes) and `oidc_revoked_tokens` (refresh tokens expire in 30 days).
+- Prune expired rows from `oidc_one_time_codes` (codes expire in 10 minutes) and `oidc_revoked_tokens` (refresh tokens expire in 180 days).
 - Add automated verification email templates and delivery monitoring.
