@@ -72,6 +72,21 @@ async function resolveSupabaseUserName(userId: string, accessToken: string, fall
 	return data?.preferred_name?.trim() || fallbackName;
 }
 
+export function createSupabaseServiceRoleClient() {
+	const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+	if (!serviceRoleKey) {
+		throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for privileged operations.');
+	}
+
+	return createClient(getSupabaseUrl(), serviceRoleKey, {
+		auth: {
+			autoRefreshToken: false,
+			persistSession: false,
+			detectSessionInUrl: false
+		}
+	});
+}
+
 export function getAccessTokenFromCookies(cookies: Cookies) {
 	return cookies.get(ACCESS_COOKIE)?.trim() ?? null;
 }

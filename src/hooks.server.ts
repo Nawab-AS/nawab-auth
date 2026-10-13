@@ -13,7 +13,6 @@ const PUBLIC_ROUTES = [
 	'/login',
 	'/oauth/',
 	'/auth/',
-	'/webhooks/',
 	'/terms',
 	'/api/',
 	'/.well-known/'

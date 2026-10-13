@@ -9,9 +9,9 @@ This project is intended to act as a custom Auth.js-compatible identity provider
 - Implemented: dark minimal UI shell, Supabase OTP login and OAuth provider linking, OIDC discovery/JWKS, authorization code flow with PKCE, token endpoint, userinfo endpoint, revoke endpoint, introspection endpoint.
 - Implemented: canonical user identity sourced from Supabase user ID (`sub`).
 - Implemented: verification-first account lifecycle with unified user state (`unverified`, `verified`, `admin`, `banned`).
-- Implemented: first-time SSO onboarding gate (video-required consent), automatic first-use OpenRouter key provisioning through OpenRouter management keys, dashboard fingerprint + usage stats, and admin usage-limit control.
+- Implemented: first-time SSO onboarding gate (video-required consent). Chat usage is billed against a single server-side provider key configured in LibreChat; per-user spend caps live in LibreChat balances (managed from the host with `update-balance.sh`).
 - Implemented: edge-safe verification email scaffold via HTTP mail API.
-- Not yet complete: persistent token/code/revocation storage in DB (currently in-memory runtime sets), OpenRouter API-side limit synchronization call, and one-time cleartext key reveal UX.
+- Implemented: persistent token/code/revocation storage in Supabase (`oidc_one_time_codes`, `oidc_revoked_tokens`).
 
 ## Tech Stack
 
@@ -64,6 +64,7 @@ Required for local development:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 - `OIDC_ISSUER_URL`
 - `OIDC_CLIENT_ID`
 - `OIDC_CLIENT_SECRET`
@@ -80,23 +81,6 @@ Optional for verification email delivery:
 Optional for OTP email domain restrictions:
 
 - `OTP_ALLOWED_EMAIL_DOMAINS`
-
-Required for OpenRouter key provisioning and rotation:
-
-- `OPENROUTER_MANAGEMENT_API_KEY`
-
-Required for OpenRouter webhook verification:
-
-- `OPENROUTER_WEBHOOK_SIGNATURE`
-
-Optional for OpenRouter webhook browser-origin allowlist:
-
-- `OPENROUTER_WEBHOOK_ALLOWED_ORIGINS` (default: `https://openrouter.ai`)
-
-In the OpenRouter dashboard, go to observability > webhooks
-> URL: <host>/webhooks/openrouter
-> Method: POST
-> Headers: {"x-webhook-signature": <OPENROUTER_WEBHOOK_SIGNATURE>}
 
 Recommended for stable OIDC tokens across restarts:
 
@@ -149,7 +133,7 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 3. Consent screen is always shown for each Login with OIDC request.
 4. Unverified users are blocked from approval until an admin verifies their account.
 5. On first SSO use, users must finish the setup video gate before approval is enabled.
-6. First successful SSO approval provisions an OpenRouter API key if one does not already exist.
+6. First successful SSO approval records first-SSO completion for the user.
 7. After consent approval, server returns authorization code to redirect_uri.
 8. Client exchanges code at /oauth/token with code_verifier.
 9. Server returns access_token, id_token, and optionally refresh_token (when offline_access is granted).
@@ -160,27 +144,21 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 - Supabase is the source of truth for user identity.
 - `sub` claim in issued tokens is Supabase user ID.
 - Account state now lives in `user_profiles.user_state` (`unverified`, `verified`, `admin`, `banned`).
-- New users are created as `unverified` and cannot use SSO key provisioning until admin verification.
+- New users are created as `unverified` and cannot use SSO until admin verification.
 - OAuth provider linking and OTP verification are available from dashboard/login flows.
 - MFA and social providers should be configured in Supabase and then exposed via the login UI.
 
-## OpenRouter Provisioning Notes
+## Usage Notes
 
-- User keys are stored as:
-	- secret value: `user_accounts.api_key_secret`
-	- OpenRouter management hash: `user_accounts.api_key_hash`
-	- public identifier: `user_accounts.api_key_fingerprint`
-- First-time provisioned usage limit is tracked in `user_accounts.provisioned_usage_limit_usd`.
-- Provisioned limit is calculated from allowed usage minus carried-forward usage at first SSO approval.
-- Key provisioning and rolling use `OPENROUTER_MANAGEMENT_API_KEY` to create a real OpenRouter key, store the returned secret in `api_key_secret`, and keep the OpenRouter hash in `api_key_hash` so the previous key can be deleted on the next roll.
-- Admins can manually set per-user allowed usage in the admin dashboard.
+- Chat usage is billed against a single server-side provider key configured in LibreChat.
+- Per-user spend caps live in LibreChat (`balance` config, topped up from the host with `update-balance.sh`).
+- `user_accounts` rows still exist so the verified + onboarded gate can check onboarding state; they no longer store any API key material.
 
 ## Security Notes
 
 - PKCE `S256` required on authorize flow.
-- One-time auth code enforcement is currently in memory.
-- Revocation list is currently in memory.
-- For production, move auth-code tracking + revocation state to persistent storage.
+- One-time auth code use is enforced in Supabase (`oidc_one_time_codes`, unique `jti` insert).
+- Token revocation is persisted in Supabase (`oidc_revoked_tokens`).
 
 ## Scripts
 
@@ -199,9 +177,8 @@ By default, the token endpoint expects client authentication when `OIDC_CLIENT_S
 - Set `ALLOWED_ORIGINS` to your client app origin(s), for example: `https://chat.example.com`.
 - If LibreChat is exchanging auth codes without a client secret, set `OIDC_ALLOW_PUBLIC_TOKEN_CLIENT=true`.
 - If verification emails are enabled, configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` in production.
-- If OpenRouter key provisioning is enabled, configure `OPENROUTER_MANAGEMENT_API_KEY` in production.
 - Set the onboarding video in `/static/onboarding.mp4`
 ## Roadmap (Next)
 
-- Persist OIDC authorization codes and token revocations in Supabase.
+- Prune expired rows from `oidc_one_time_codes` (codes expire in 10 minutes) and `oidc_revoked_tokens` (refresh tokens expire in 30 days).
 - Add automated verification email templates and delivery monitoring.

@@ -4,9 +4,7 @@ import { buildDashboardSnapshot } from '$lib/server/oidc';
 import { createSupabaseAuthedClient, getAccessTokenFromCookies } from '$lib/server/supabase';
 import { getOAuthSettings, getProviderDisplayName } from '$lib/server/oauth-settings';
 import { getLinkedProviders, revokeLinkedProvider } from '$lib/server/providers';
-import { rollApiKey, setApiKeyDisabled } from '$lib/server/account';
-import { getErrorMessage, parseBoolean } from '$lib/server/http';
-import { encodeProxyApiKey } from '$lib/server/key-obfuscation';
+import { getErrorMessage } from '$lib/server/http';
 import type { Provider } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -16,21 +14,7 @@ interface DashboardProvider {
 	isLinked: boolean;
 }
 
-function requireDashboardSession(locals: App.Locals, cookies: import('@sveltejs/kit').Cookies) {
-	const user = locals.user;
-	if (!user) {
-		throw redirect(303, '/login?redirect_to=%2Fdashboard');
-	}
-
-	const accessToken = getAccessTokenFromCookies(cookies);
-	if (!accessToken) {
-		throw redirect(303, '/login?redirect_to=%2Fdashboard');
-	}
-
-	return { user, accessToken };
-}
-
-export const load: PageServerLoad = async ({ url, locals, cookies }) => {
+export const load: PageServerLoad = async ({ locals, cookies }) => {
 	// User is guaranteed to be present due to route protection in hooks.server.ts
 	// But we can assert it here for type safety if needed
 	const user = locals.user;
@@ -69,45 +53,11 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 		user,
 		...snapshot,
 		providers,
-		supportEmail: env.SUPPORT_EMAIL?.trim() || 'support@example.com',
-		rolled: url.searchParams.get('rolled') === '1'
+		supportEmail: env.SUPPORT_EMAIL?.trim() || 'support@example.com'
 	};
 };
 
 export const actions: Actions = {
-	rollKey: async ({ locals, cookies }) => {
-		const { user, accessToken } = requireDashboardSession(locals, cookies);
-
-		try {
-			const rolledKey = await rollApiKey(user.id, accessToken);
-			const obfuscatedRolledKey = encodeProxyApiKey(rolledKey);
-			if (obfuscatedRolledKey === 'ERROR-INVALID-PREFIX') {
-				throw new Error('Failed to encode API key.');
-			}
-
-			return {
-				rollMessage: 'API key rolled.',
-				rolledKey: obfuscatedRolledKey
-			};
-		} catch (error) {
-			return fail(400, { rollMessage: getErrorMessage(error, 'Failed to roll API key.') });
-		}
-	},
-	disableKey: async ({ locals, cookies, request }) => {
-		const { user, accessToken } = requireDashboardSession(locals, cookies);
-
-		const formData = await request.formData();
-		const disabled = parseBoolean(String(formData.get('disabled') ?? 'true'), true);
-
-		try {
-			await setApiKeyDisabled(user.id, accessToken, disabled);
-			return {
-				keyMessage: disabled ? 'API key disabled.' : 'API key enabled.'
-			};
-		} catch (error) {
-			return fail(400, { keyMessage: getErrorMessage(error, 'Failed to update API key state.') });
-		}
-	},
 	linkProvider: async ({ request, cookies, url }) => {
 		const formData = await request.formData();
 		const provider = String(formData.get('provider') ?? '').trim().toLowerCase();

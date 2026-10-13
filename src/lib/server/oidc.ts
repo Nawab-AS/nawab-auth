@@ -3,6 +3,7 @@ import { importJWK, exportJWK, generateKeyPair, SignJWT, jwtVerify, calculateJwk
 import type { JWK, JWTPayload } from 'jose';
 import type { OAuthOptions } from '@better-auth/oauth-provider';
 import type { SupabaseSessionUser } from '$lib/server/supabase';
+import { createSupabaseServiceRoleClient } from '$lib/server/supabase';
 import { getDashboardSnapshot } from '$lib/server/account';
 
 type SigningKey = CryptoKey | Uint8Array;
@@ -11,7 +12,6 @@ export const supportedScopes = ['openid', 'profile', 'email', 'offline_access'] 
 
 export type SupportedScope = (typeof supportedScopes)[number];
 export type OidcClientId = string;
-export type KeyRollRole = 'user' | 'admin';
 
 export interface ConsentSummary {
 	clientId: OidcClientId;
@@ -31,13 +31,6 @@ export interface DashboardSnapshot {
 	isVerified: boolean;
 	userState: 'unverified' | 'verified' | 'admin' | 'banned';
 	preferredName: string | null;
-	allowedUsageUsd: number;
-	usageCarriedForwardUsd: number;
-	currentUsageUsd: number;
-	apiKeyFingerprint: string | null;
-	apiKeyAssigned: boolean;
-	apiKeyDisabled: boolean;
-	rolledKeyIds: string[];
 }
 
 export interface SessionIdentity {
@@ -81,8 +74,6 @@ interface SigningContext {
 }
 
 const OIDC_ALG = 'RS256';
-const oneTimeCodeUse = new Set<string>();
-const revokedTokenIds = new Set<string>();
 let signingContextPromise: Promise<SigningContext> | null = null;
 
 const PRIVATE_JWK_FIELDS = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
@@ -298,8 +289,47 @@ export function summarizeScopes(scopes: SupportedScope[]) {
 	return scopes.map((scope) => scope.replace(/_/g, ' '));
 }
 
-export function createRollRequestId() {
-	return `roll_${crypto.randomUUID().replace(/-/g, '')}`;
+async function recordAuthorizationCodeUse(jti: string): Promise<boolean> {
+	const client = createSupabaseServiceRoleClient();
+	const { error } = await client.from('oidc_one_time_codes').insert({ jti });
+
+	if (error && error.code === '23505') {
+		return false;
+	}
+
+	if (error) {
+		throw new Error(error.message);
+	}
+
+	return true;
+}
+
+async function isTokenIdRevoked(jti: string): Promise<boolean> {
+	const client = createSupabaseServiceRoleClient();
+	const { data, error } = await client
+		.from('oidc_revoked_tokens')
+		.select('jti')
+		.eq('jti', jti)
+		.maybeSingle();
+
+	if (error) {
+		throw new Error(error.message);
+	}
+
+	return Boolean(data?.jti);
+}
+
+async function recordRevokedTokenId(jti: string): Promise<void> {
+	const client = createSupabaseServiceRoleClient();
+	const { error } = await client.from('oidc_revoked_tokens').insert({ jti });
+
+	if (error && error.code === '23505') {
+		return;
+	}
+
+	if (error) {
+		throw new Error(error.message);
+	}
 }
 
 export async function createAuthorizationCode(input: {
@@ -367,10 +397,6 @@ export async function consumeAuthorizationCode(input: {
 		throw new Error('Missing code identifier.');
 	}
 
-	if (oneTimeCodeUse.has(jti)) {
-		throw new Error('Authorization code already used.');
-	}
-
 	if (payload.code_challenge) {
 		if (payload.code_challenge_method !== 'S256') {
 			throw new Error('Only S256 PKCE is supported.');
@@ -386,7 +412,10 @@ export async function consumeAuthorizationCode(input: {
 		}
 	}
 
-	oneTimeCodeUse.add(jti);
+	const isFirstUse = await recordAuthorizationCodeUse(jti);
+	if (!isFirstUse) {
+		throw new Error('Authorization code already used.');
+	}
 
 	return {
 		sub: payload.sub,
@@ -491,7 +520,7 @@ export async function verifyRefreshToken(refreshToken: string, clientId: string)
 		throw new Error('Token is not a refresh token.');
 	}
 
-	if (verified.payload.jti && revokedTokenIds.has(verified.payload.jti)) {
+	if (verified.payload.jti && (await isTokenIdRevoked(verified.payload.jti))) {
 		throw new Error('Refresh token has been revoked.');
 	}
 
@@ -532,7 +561,7 @@ export async function verifyAccessToken(accessToken: string) {
 		throw new Error('Token is not an access token.');
 	}
 
-	if (verified.payload.jti && revokedTokenIds.has(verified.payload.jti)) {
+	if (verified.payload.jti && (await isTokenIdRevoked(verified.payload.jti))) {
 		throw new Error('Access token has been revoked.');
 	}
 
@@ -548,7 +577,7 @@ export async function revokeToken(token: string) {
 	});
 
 	if (verified.payload.jti) {
-		revokedTokenIds.add(verified.payload.jti);
+		await recordRevokedTokenId(verified.payload.jti);
 	}
 }
 

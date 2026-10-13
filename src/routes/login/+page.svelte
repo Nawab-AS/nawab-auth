@@ -13,8 +13,6 @@
 			onboarded: boolean;
 			firstSsoCompleted: boolean;
 			videoWatched: boolean;
-			hasApiKey: boolean;
-			apiKeyDisabled: boolean;
 			canProceedToOidc: boolean;
 			canManageAfterPrerequisites: boolean;
 		};
@@ -30,9 +28,6 @@
 	let returnToFromLocation = $state('');
 	let sendingOtp = $state(false);
 	let verifyingOtp = $state(false);
-	let gateActionBusy = $state(false);
-	let generatedApiKey = $state<string | null>(null);
-	let copied = $state(false);
 	let cooldownEndsAt = $state(0);
 	let now = $state(Date.now());
 
@@ -105,10 +100,7 @@
 	let otpProcessing = $derived(sendingOtp || verifyingOtp);
 	let pageError = $derived(data.error ?? data.authError ?? null);
 	let isSignedInGateMode = $derived(Boolean(data.signedIn));
-	let gateState = $derived(form?.oidcGate ?? data.oidcGate ?? null);
-	let gateMessage = $derived(
-		typeof form?.gateMessage === 'string' ? form.gateMessage : null
-	);
+	let gateState = $derived(data.oidcGate ?? null);
 	let unverifiedReturnUrl = $derived(buildDeniedReturnUrl(resolvedReturnTo, data.authOrigin));
 
 	const enhanceSendOtp: SubmitFunction = () => {
@@ -144,42 +136,8 @@
 		};
 	};
 
-	const enhanceGateAction: SubmitFunction = () => {
-		gateActionBusy = true;
-		return async ({ update, result }) => {
-			await update();
-			gateActionBusy = false;
-
-			if (
-				(result.type === 'success' || result.type === 'failure') &&
-				typeof result.data?.generatedApiKey === 'string'
-			) {
-				generatedApiKey = result.data.generatedApiKey;
-				copied = false;
-			}
-		};
-	};
-
 	function goToConsent() {
 		window.location.href = resolvedReturnTo;
-	}
-
-	async function copyGeneratedKey() {
-		if (!generatedApiKey) {
-			return;
-		}
-
-		try {
-			await navigator.clipboard.writeText(generatedApiKey);
-			copied = true;
-		} catch {
-			copied = false;
-		}
-	}
-
-	function dismissGeneratedKey() {
-		generatedApiKey = null;
-		copied = false;
 	}
 
 	function getProviderDisplayName(provider: string): string {
@@ -231,14 +189,10 @@
 	<section class="panel">
 		{#if isSignedInGateMode && gateState}
 			<p class="eyebrow">SSO preflight</p>
-			<h1>Finish key setup</h1>
+			<h1>Continue sign-in</h1>
 
 			{#if pageError}
 				<p class="error-message">{pageError}</p>
-			{/if}
-
-			{#if gateMessage}
-				<p class="success-message">{gateMessage}</p>
 			{/if}
 
 			{#if !gateState.onboarded}
@@ -250,44 +204,6 @@
 						Go back
 					</button>
 				{/if}
-			{/if}
-
-			{#if gateState.canManageAfterPrerequisites && !gateState.hasApiKey}
-				<br/>
-				<p class="footer-text">No key exists yet. Generate one now to continue with login.</p>
-				<form method="POST" action="?/generateApiKey" use:enhance={enhanceGateAction} class="form-stack generate-key-form">
-					<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
-					<button type="submit" class="primary" disabled={gateActionBusy}>
-						{gateActionBusy ? 'Generating...' : 'Generate API key'}
-					</button>
-				</form>
-			{/if}
-
-			{#if generatedApiKey}
-				<div class="api-key-overlay" role="presentation">
-					<dialog class="api-key-dialog" open aria-labelledby="copy-api-key-title">
-						<h2 id="copy-api-key-title">Copy API key</h2>
-						<code>{generatedApiKey}</code>
-						<p class="key-warning">Do not share your API key. You can regenerate the API key at any time.</p>
-						<div class="inline-actions">
-							<button type="button" class="secondary-btn" onclick={copyGeneratedKey}>
-								{copied ? 'Copied' : 'Copy'}
-							</button>
-							<button type="button" class="secondary-btn" onclick={dismissGeneratedKey}>Close</button>
-						</div>
-					</dialog>
-				</div>
-			{/if}
-
-			{#if gateState.canManageAfterPrerequisites && gateState.hasApiKey && gateState.apiKeyDisabled}
-				<p class="section-label">API key disabled</p>
-				<p class="footer-text">Your key is currently disabled. Enable it to continue with login.</p>
-				<form method="POST" action="?/enableApiKey" use:enhance={enhanceGateAction} class="form-stack">
-					<input type="hidden" name="redirect_to" value={resolvedReturnTo} />
-					<button type="submit" class="primary" disabled={gateActionBusy}>
-						{gateActionBusy ? 'Enabling...' : 'Enable API key'}
-					</button>
-				</form>
 			{/if}
 
 			{#if gateState.canProceedToOidc}
@@ -596,10 +512,6 @@
 		gap: 0.9rem;
 	}
 
-	.generate-key-form {
-		margin-bottom: 1rem;
-	}
-
 	label {
 		display: grid;
 		gap: 0.45rem;
@@ -694,80 +606,5 @@
 		font-size: 0.85rem;
 		margin-top: 1.5rem;
 		text-align: center;
-	}
-
-	.api-key-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 100;
-		display: grid;
-		place-items: center;
-		padding: 1rem;
-		overflow: auto;
-		background: rgba(15, 17, 21, 0.55);
-		backdrop-filter: blur(4px);
-		-webkit-backdrop-filter: blur(4px);
-	}
-
-	.api-key-dialog {
-		position: static;
-		inset: auto;
-		display: grid;
-		gap: 0.75rem;
-		width: min(34rem, calc(100vw - 2rem));
-		max-width: 34rem;
-		padding: 1.25rem;
-		margin: 0;
-		border-radius: 0.75rem;
-		border: 1px solid #2b3038;
-		background: #1a1d23;
-		color: #e5e7eb;
-		box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-	}
-
-	.api-key-dialog h2 {
-		margin: 0;
-		font-size: 1rem;
-		color: #e2e8f0;
-	}
-
-	.api-key-dialog code {
-		display: block;
-		padding: 0.6rem;
-		border-radius: 0.35rem;
-		background: #0f1115;
-		border: 1px solid #2b3038;
-		color: #e2e8f0;
-		font-size: 0.82rem;
-		word-break: break-all;
-		font-family: 'Courier New', monospace;
-		overflow-x: auto;
-	}
-
-	.key-warning {
-		margin: 0;
-		font-size: 0.85rem;
-		color: #fef3c7;
-	}
-
-	.inline-actions {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-
-	.secondary-btn {
-		background: #1e293b;
-		color: #e2e8f0;
-		border: 1px solid #334155;
-		border-radius: 0.45rem;
-		padding: 0.55rem 0.85rem;
-		font-size: 0.8rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.secondary-btn:hover {
-		background: #334155;
 	}
 </style>

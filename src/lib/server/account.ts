@@ -1,45 +1,14 @@
 import { env } from '$env/dynamic/private';
 import type { DashboardSnapshot } from '$lib/server/oidc';
-import { createClient } from '@supabase/supabase-js';
-import {
-	createOpenRouterApiKey,
-	deleteOpenRouterApiKey,
-	deleteOpenRouterApiKeysByName,
-	getOpenRouterApiKeyUsage,
-	setOpenRouterApiKeyDisabled,
-	setOpenRouterApiKeyLimit,
-	setOpenRouterApiKeysDisabledByName,
-	setOpenRouterApiKeysLimitByName,
-	} from '$lib/server/openrouter';
 import type { SupabaseSessionUser } from '$lib/server/supabase';
-import { createSupabaseAuthedClient, getSupabaseUrl } from '$lib/server/supabase';
+import { createSupabaseAuthedClient, createSupabaseServiceRoleClient } from '$lib/server/supabase';
 
 export const BANNED_ACCOUNT_MESSAGE = `Your account is banned. Please contact support to appeal this ban: ${env.SUPPORT_EMAIL?.trim() || 'support@example.com'}`;
 
 export const USER_STATES = ['unverified', 'verified', 'admin', 'banned'] as const;
 export type UserState = (typeof USER_STATES)[number];
 
-const textEncoder = new TextEncoder();
 const INITIAL_ALLOWED_USAGE_USD = 0.0001;
-
-function getServiceRoleKey() {
-	return env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? '';
-}
-
-function createSupabaseServiceRoleClient() {
-	const serviceRoleKey = getServiceRoleKey();
-	if (!serviceRoleKey) {
-		throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for privileged account operations.');
-	}
-
-	return createClient(getSupabaseUrl(), serviceRoleKey, {
-		auth: {
-			autoRefreshToken: false,
-			persistSession: false,
-			detectSessionInUrl: false
-		}
-	});
-}
 
 interface UserProfileRow {
 	user_id?: string;
@@ -49,16 +18,6 @@ interface UserProfileRow {
 	onboarding_video_watched: boolean;
 }
 
-interface UserAccountRow {
-	user_id?: string;
-	api_key_hash: string | null;
-	api_key_fingerprint: string | null;
-	allowed_usage_usd: string | number | null;
-	usage_carried_forward_usd: string | number | null;
-	provisioned_usage_limit_usd: string | number | null;
-	api_key_disabled: boolean | null;
-}
-
 export interface AdminUserRow {
 	userId: string;
 	preferredName: string | null;
@@ -66,27 +25,9 @@ export interface AdminUserRow {
 	isAdmin: boolean;
 	isVerified: boolean;
 	banned: boolean;
-	allowedUsageUsd: number;
-	usageCarriedForwardUsd: number;
-	apiKeyDisabled: boolean;
-	apiKeyAssigned: boolean;
 }
 
-export interface AdminUserDetail extends AdminUserRow {
-	currentUsageUsd: number;
-	apiKeyFingerprint: string | null;
-}
-
-interface ApiKeyRollResult {
-	keyValue: string;
-	fingerprint: string;
-	hash: string;
-}
-
-export interface ProvisionResult {
-	created: boolean;
-	apiKey: string | null;
-}
+export type AdminUserDetail = AdminUserRow;
 
 interface UserSsoState {
 	userState: UserState;
@@ -95,13 +36,11 @@ interface UserSsoState {
 	videoWatched: boolean;
 }
 
-export interface OidcApiKeyGateState {
+export interface OidcGateState {
 	isVerified: boolean;
 	onboarded: boolean;
 	firstSsoCompleted: boolean;
 	videoWatched: boolean;
-	hasApiKey: boolean;
-	apiKeyDisabled: boolean;
 	canProceedToOidc: boolean;
 	canManageAfterPrerequisites: boolean;
 }
@@ -110,15 +49,6 @@ interface CompleteOnboardingInput {
 	user: SupabaseSessionUser;
 	accessToken: string;
 	preferredName: string;
-}
-
-function toNumber(value: string | number | null | undefined): number {
-	if (typeof value === 'number') {
-		return Number.isFinite(value) ? value : 0;
-	}
-
-	const parsed = Number(value ?? 0);
-	return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function sanitizeAdminSearch(value: string | undefined): string | null {
@@ -134,16 +64,6 @@ function sanitizeAdminSearch(value: string | undefined): string | null {
 
 	// Strip wildcard operators to keep ILIKE matching predictable.
 	return normalized.replace(/[%*]/g, '');
-}
-
-function isApiKeyAssigned(
-	apiKeyHash: string | null | undefined
-): boolean {
-	return Boolean(apiKeyHash && apiKeyHash.trim().length > 0);
-}
-
-function computeProvisionedUsageLimit(allowedUsageUsd: number, carriedForwardUsd: number): number {
-	return Math.max(allowedUsageUsd - carriedForwardUsd, 0);
 }
 
 function isKnownUserState(value: string | null | undefined): value is UserState {
@@ -168,24 +88,6 @@ function isUserStateBanned(userState: UserState): boolean {
 
 function isUserStateVerified(userState: UserState): boolean {
 	return userState === 'verified' || userState === 'admin';
-}
-
-function toHex(bytes: Uint8Array): string {
-	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function hashApiKey(value: string): Promise<string> {
-	const digest = await crypto.subtle.digest('SHA-256', textEncoder.encode(value));
-	return toHex(new Uint8Array(digest));
-}
-
-async function buildApiKeyRollResult(value: string): Promise<ApiKeyRollResult> {
-	const hash = await hashApiKey(value);
-	return {
-		keyValue: value,
-		fingerprint: hash.slice(0, 12),
-		hash
-	};
 }
 
 async function getUserStateById(userId: string, accessToken: string): Promise<UserState | null> {
@@ -229,10 +131,10 @@ export async function getUserSsoState(userId: string, accessToken: string): Prom
 	};
 }
 
-export async function getOidcApiKeyGateState(
+export async function getOidcGateState(
 	userId: string,
 	accessToken: string
-): Promise<OidcApiKeyGateState> {
+): Promise<OidcGateState> {
 	const client = createSupabaseAuthedClient(accessToken);
 	const [profileResult, accountResult] = await Promise.all([
 		client
@@ -242,7 +144,7 @@ export async function getOidcApiKeyGateState(
 			.maybeSingle(),
 		client
 			.from('user_accounts')
-			.select('user_id,api_key_hash,api_key_disabled')
+			.select('user_id')
 			.eq('user_id', userId)
 			.maybeSingle()
 	]);
@@ -263,40 +165,22 @@ export async function getOidcApiKeyGateState(
 				onboarding_video_watched?: boolean;
 		  }
 		| null;
-	const account = accountResult.data as
-		| {
-				user_id?: string;
-				api_key_hash?: string | null;
-				api_key_disabled?: boolean | null;
-		  }
-		| null;
+	const account = accountResult.data as { user_id?: string } | null;
 
 	const userState = toUserState(profile?.user_state);
 	const isVerified = isUserStateVerified(userState);
 	const firstSsoCompleted = Boolean(profile?.first_sso_completed);
 	const videoWatched = Boolean(profile?.onboarding_video_watched) || firstSsoCompleted;
-	const hasApiKey = Boolean(account?.api_key_hash && account.api_key_hash.trim().length > 0);
-	const apiKeyDisabled = Boolean(account?.api_key_disabled);
 	const onboarded = Boolean(profile?.user_id && account?.user_id);
-	const canManageAfterPrerequisites = onboarded && isVerified;
 
 	return {
 		isVerified,
 		onboarded,
 		firstSsoCompleted,
 		videoWatched,
-		hasApiKey,
-		apiKeyDisabled,
-		canProceedToOidc: isVerified && hasApiKey && !apiKeyDisabled,
-		canManageAfterPrerequisites
+		canProceedToOidc: isVerified && onboarded,
+		canManageAfterPrerequisites: onboarded && isVerified
 	};
-}
-
-async function ensureUserVerified(userId: string, accessToken: string) {
-	const userState = await getUserStateById(userId, accessToken);
-	if (!userState || !isUserStateVerified(userState)) {
-		throw new Error('Your account is not verified yet. Ask an admin to verify your account first.');
-	}
 }
 
 async function ensureUserProfileRecord(userId: string, accessToken: string) {
@@ -364,15 +248,6 @@ async function ensureUserAccountRecord(userId: string, accessToken: string) {
 export async function ensurePendingUserRegistrationRecords(userId: string, accessToken: string) {
 	await ensureUserProfileRecord(userId, accessToken);
 	await ensureUserAccountRecord(userId, accessToken);
-}
-
-async function getCurrentUsageUsd(apiKeyHash: string | null | undefined): Promise<number> {
-	if (!apiKeyHash) {
-		return 0;
-	}
-
-	const usage = await getOpenRouterApiKeyUsage(apiKeyHash);
-	return usage ?? 0;
 }
 
 export async function isUserOnboarded(userId: string, accessToken: string | null): Promise<boolean> {
@@ -530,37 +405,24 @@ export async function getDashboardSnapshot(
 			isAdmin: Boolean(user.isAdmin),
 			isVerified: false,
 			userState: 'unverified',
-			preferredName: user.name,
-			allowedUsageUsd: 0,
-			usageCarriedForwardUsd: 0,
-			currentUsageUsd: 0,
-			apiKeyFingerprint: null,
-			apiKeyAssigned: false,
-			apiKeyDisabled: false,
-			rolledKeyIds: []
+			preferredName: user.name
 		};
 	}
 
 	const client = createSupabaseAuthedClient(accessToken);
-	const [profileResult, accountResult] = await Promise.all([
-		client
-			.from('user_profiles')
-			.select('preferred_name,user_state,first_sso_completed,onboarding_video_watched')
-			.eq('user_id', user.id)
-			.maybeSingle(),
-		client
-			.from('user_accounts')
-			.select('api_key_hash,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
-			.eq('user_id', user.id)
-			.maybeSingle()
-	]);
+	const { data, error } = await client
+		.from('user_profiles')
+		.select('preferred_name,user_state')
+		.eq('user_id', user.id)
+		.maybeSingle();
 
-	const profile = (profileResult.data ?? null) as UserProfileRow | null;
-	const account = (accountResult.data ?? null) as UserAccountRow | null;
+	if (error) {
+		throw new Error(error.message);
+	}
 
+	const profile = (data ?? null) as UserProfileRow | null;
 	const userState = toUserState(profile?.user_state);
-	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_hash);
-	
+
 	return {
 		userId: user.id,
 		email: user.email,
@@ -569,14 +431,7 @@ export async function getDashboardSnapshot(
 		isAdmin: isUserStateAdmin(userState) || Boolean(user.isAdmin),
 		isVerified: isUserStateVerified(userState),
 		userState,
-		preferredName: profile?.preferred_name ?? user.name,
-		allowedUsageUsd: toNumber(account?.allowed_usage_usd),
-		usageCarriedForwardUsd: toNumber(account?.usage_carried_forward_usd),
-		currentUsageUsd,
-		apiKeyFingerprint: account?.api_key_fingerprint ?? null,
-		apiKeyAssigned: isApiKeyAssigned(account?.api_key_hash),
-		apiKeyDisabled: account?.api_key_disabled ?? false,
-		rolledKeyIds: []
+		preferredName: profile?.preferred_name ?? user.name
 	};
 }
 
@@ -590,7 +445,7 @@ export async function listAdminUsers(
 
 	let profileQuery = client
 		.from('user_profiles')
-		.select('user_id,preferred_name,user_state,first_sso_completed,onboarding_video_watched')
+		.select('user_id,preferred_name,user_state')
 		.limit(limit);
 
 	if (search) {
@@ -602,34 +457,8 @@ export async function listAdminUsers(
 		throw new Error(profileError.message);
 	}
 
-	const profiles = (profilesData ?? []) as UserProfileRow[];
-	if (profiles.length === 0) {
-		return [];
-	}
-
-	const userIds = profiles
-		.map((profile) => profile.user_id)
-		.filter((userId): userId is string => Boolean(userId));
-
-	const { data: accountData, error: accountError } = await client
-		.from('user_accounts')
-		.select('user_id,api_key_hash,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
-		.in('user_id', userIds);
-
-	if (accountError) {
-		throw new Error(accountError.message);
-	}
-
-	const accountByUserId = new Map<string, UserAccountRow>();
-	for (const account of (accountData ?? []) as UserAccountRow[]) {
-		if (account.user_id) {
-			accountByUserId.set(account.user_id, account);
-		}
-	}
-
-	return profiles.map((profile) => {
+	return ((profilesData ?? []) as UserProfileRow[]).map((profile) => {
 		const userId = profile.user_id ?? '';
-		const account = accountByUserId.get(userId);
 		const userState = toUserState(profile.user_state);
 
 		return {
@@ -638,11 +467,7 @@ export async function listAdminUsers(
 			userState,
 			isAdmin: isUserStateAdmin(userState),
 			isVerified: isUserStateVerified(userState),
-			banned: isUserStateBanned(userState),
-			allowedUsageUsd: toNumber(account?.allowed_usage_usd),
-			usageCarriedForwardUsd: toNumber(account?.usage_carried_forward_usd),
-			apiKeyDisabled: account?.api_key_disabled ?? false,
-			apiKeyAssigned: isApiKeyAssigned(account?.api_key_hash)
+			banned: isUserStateBanned(userState)
 		};
 	});
 }
@@ -652,36 +477,22 @@ export async function getAdminUserDetail(
 	accessToken: string
 ): Promise<AdminUserDetail | null> {
 	const client = createSupabaseAuthedClient(accessToken);
-	const [profileResult, accountResult] = await Promise.all([
-		client
-			.from('user_profiles')
-			.select('preferred_name,user_state,first_sso_completed,onboarding_video_watched')
-			.eq('user_id', userId)
-			.maybeSingle(),
-		client
-			.from('user_accounts')
-			.select('api_key_hash,api_key_fingerprint,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd,api_key_disabled')
-			.eq('user_id', userId)
-			.maybeSingle()
-	]);
+	const { data, error } = await client
+		.from('user_profiles')
+		.select('user_id,preferred_name,user_state')
+		.eq('user_id', userId)
+		.maybeSingle();
 
-	if (profileResult.error) {
-		throw new Error(profileResult.error.message);
+	if (error) {
+		throw new Error(error.message);
 	}
 
-	if (!profileResult.data) {
+	if (!data) {
 		return null;
 	}
 
-	if (accountResult.error) {
-		throw new Error(accountResult.error.message);
-	}
-
-	const profile = profileResult.data as UserProfileRow;
-	const account = (accountResult.data ?? null) as UserAccountRow | null;
+	const profile = data as UserProfileRow;
 	const userState = toUserState(profile.user_state);
-
-	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_hash);
 
 	return {
 		userId,
@@ -689,195 +500,16 @@ export async function getAdminUserDetail(
 		userState,
 		isAdmin: isUserStateAdmin(userState),
 		isVerified: isUserStateVerified(userState),
-		banned: isUserStateBanned(userState),
-		allowedUsageUsd: toNumber(account?.allowed_usage_usd),
-		usageCarriedForwardUsd: toNumber(account?.usage_carried_forward_usd),
-		apiKeyFingerprint: account?.api_key_fingerprint ?? null,
-		apiKeyDisabled: account?.api_key_disabled ?? false,
-		apiKeyAssigned: isApiKeyAssigned(account?.api_key_hash),
-		currentUsageUsd
+		banned: isUserStateBanned(userState)
 	};
 }
 
-export async function rollApiKey(userId: string, accessToken: string) {
-	await ensureUserVerified(userId, accessToken);
-	await ensureUserAccountRecord(userId, accessToken);
+export async function markFirstSsoCompleted(userId: string, accessToken: string) {
+	await ensureUserProfileRecord(userId, accessToken);
 	const client = createSupabaseAuthedClient(accessToken);
-	const privilegedClient = createSupabaseServiceRoleClient();
-	const { data: account, error: accountError } = await client
-		.from('user_accounts')
-		.select('api_key_hash,api_key_fingerprint,api_key_disabled,allowed_usage_usd,usage_carried_forward_usd,provisioned_usage_limit_usd')
-		.eq('user_id', userId)
-		.maybeSingle();
-
-	if (accountError) {
-		throw new Error(accountError.message);
-	}
-
-	const currentUsageUsd = await getCurrentUsageUsd(account?.api_key_hash);
-	const carriedForwardUsd = toNumber(account?.usage_carried_forward_usd) + currentUsageUsd;
-
-	const provisionedLimit = computeProvisionedUsageLimit(
-		toNumber(account?.allowed_usage_usd),
-		carriedForwardUsd
-	);
-	const keyName = `Nawab Auth ${userId}`;
-	await deleteOpenRouterApiKeysByName(keyName);
-
-	const newKey = await createOpenRouterApiKey({
-		name: keyName,
-		limit: provisionedLimit
-	});
-
-	if (!newKey) {
-		throw new Error('OpenRouter management API key is not configured.');
-	}
-
-	const roll = await buildApiKeyRollResult(newKey.keyValue);
-
-	const { error } = await privilegedClient
-		.from('user_accounts')
-		.update({
-			api_key_hash: newKey.hash,
-			api_key_fingerprint: roll.fingerprint,
-			usage_carried_forward_usd: carriedForwardUsd,
-			provisioned_usage_limit_usd: provisionedLimit,
-			api_key_disabled: false
-		})
-		.eq('user_id', userId);
-
-	if (error) {
-		try {
-			await deleteOpenRouterApiKey(newKey.hash);
-		} catch (cleanupError) {
-			console.warn(`Failed to clean up rolled OpenRouter key for ${userId}:`, cleanupError);
-		}
-
-		throw new Error(error.message);
-	}
-
-	return roll.keyValue;
-}
-
-export async function generateApiKeyForOidcLogin(userId: string, accessToken: string): Promise<string | null> {
-	const gateState = await getOidcApiKeyGateState(userId, accessToken);
-	if (!gateState.isVerified) {
-		throw new Error('Awaiting admin approval before OIDC sign-in.');
-	}
-
-	if (!gateState.onboarded) {
-		throw new Error('Awaiting admin approval before OIDC sign-in.');
-	}
-
-	if (gateState.hasApiKey) {
-		return null;
-	}
-
-	await ensureUserAccountRecord(userId, accessToken);
-	const client = createSupabaseAuthedClient(accessToken);
-	const privilegedClient = createSupabaseServiceRoleClient();
-	const { data: account, error: accountError } = await client
-		.from('user_accounts')
-		.select('allowed_usage_usd,usage_carried_forward_usd,api_key_hash')
-		.eq('user_id', userId)
-		.maybeSingle();
-
-	if (accountError) {
-		throw new Error(accountError.message);
-	}
-
-	const provisionedLimit = computeProvisionedUsageLimit(
-		toNumber(account?.allowed_usage_usd),
-		toNumber(account?.usage_carried_forward_usd)
-	);
-	const keyName = `Nawab Auth ${userId}`;
-	await deleteOpenRouterApiKeysByName(keyName);
-
-	const newKey = await createOpenRouterApiKey({
-		name: keyName,
-		limit: provisionedLimit
-	});
-
-	if (!newKey) {
-		throw new Error('OpenRouter management API key is not configured.');
-	}
-
-	const roll = await buildApiKeyRollResult(newKey.keyValue);
-
-	const { error } = await privilegedClient
-		.from('user_accounts')
-		.update({
-			api_key_hash: newKey.hash,
-			api_key_fingerprint: roll.fingerprint,
-			provisioned_usage_limit_usd: provisionedLimit,
-			api_key_disabled: false
-		})
-		.eq('user_id', userId);
-
-	if (error) {
-		try {
-			await deleteOpenRouterApiKey(newKey.hash);
-		} catch (cleanupError) {
-			console.warn(`Failed to clean up generated OpenRouter key for ${userId}:`, cleanupError);
-		}
-
-		throw new Error(error.message);
-	}
-
-	return roll.keyValue;
-}
-
-export async function enableApiKeyForOidcLogin(userId: string, accessToken: string) {
-	const gateState = await getOidcApiKeyGateState(userId, accessToken);
-	if (!gateState.isVerified || !gateState.onboarded) {
-		throw new Error('Awaiting admin approval before OIDC sign-in.');
-	}
-
-	if (!gateState.hasApiKey) {
-		throw new Error('No API key is currently assigned. Generate one first.');
-	}
-
-	if (!gateState.apiKeyDisabled) {
-		return;
-	}
-
-	await setApiKeyDisabled(userId, accessToken, false);
-}
-
-export async function setApiKeyDisabled(userId: string, accessToken: string, disabled: boolean) {
-	await ensureUserAccountRecord(userId, accessToken);
-	const client = createSupabaseAuthedClient(accessToken);
-	const { data: account, error: accountError } = await client
-		.from('user_accounts')
-		.select('api_key_hash')
-		.eq('user_id', userId)
-		.maybeSingle();
-
-	if (accountError) {
-		throw new Error(accountError.message);
-	}
-
-	const hasApiKey = Boolean(account?.api_key_hash?.trim());
-	if (hasApiKey) {
-		const keyName = `Nawab Auth ${userId}`;
-		let updatedCount = await setOpenRouterApiKeysDisabledByName(keyName, disabled);
-
-		if (updatedCount === 0) {
-			const fallbackHash = account?.api_key_hash?.trim() ?? '';
-			if (fallbackHash) {
-				const didUpdate = await setOpenRouterApiKeyDisabled(fallbackHash, disabled);
-				updatedCount = didUpdate ? 1 : 0;
-			}
-		}
-
-		if (updatedCount === 0) {
-			throw new Error('No matching OpenRouter key was found to update.');
-		}
-	}
-
 	const { error } = await client
-		.from('user_accounts')
-		.update({ api_key_disabled: disabled })
+		.from('user_profiles')
+		.update({ first_sso_completed: true })
 		.eq('user_id', userId);
 
 	if (error) {
@@ -903,59 +535,6 @@ export async function setUserState(userId: string, accessToken: string, userStat
 	}
 }
 
-export async function setUsageLimitUsd(userId: string, accessToken: string, allowedUsageUsd: number) {
-	if (!Number.isFinite(allowedUsageUsd) || allowedUsageUsd < 0) {
-		throw new Error('Usage limit must be a non-negative number.');
-	}
-
-	await ensureUserAccountRecord(userId, accessToken);
-	const client = createSupabaseAuthedClient(accessToken);
-	const { data: account, error: accountError } = await client
-		.from('user_accounts')
-		.select('api_key_hash,usage_carried_forward_usd')
-		.eq('user_id', userId)
-		.maybeSingle();
-
-	if (accountError) {
-		throw new Error(accountError.message);
-	}
-
-	const provisionedLimit = computeProvisionedUsageLimit(
-		allowedUsageUsd,
-		toNumber(account?.usage_carried_forward_usd)
-	);
-
-	const hasApiKey = Boolean(account?.api_key_hash?.trim());
-	if (hasApiKey) {
-		const keyName = `Nawab Auth ${userId}`;
-		let updatedCount = await setOpenRouterApiKeysLimitByName(keyName, provisionedLimit);
-
-		if (updatedCount === 0) {
-			const fallbackHash = account?.api_key_hash?.trim() ?? '';
-			if (fallbackHash) {
-				const didUpdate = await setOpenRouterApiKeyLimit(fallbackHash, provisionedLimit);
-				updatedCount = didUpdate ? 1 : 0;
-			}
-		}
-
-		if (updatedCount === 0) {
-			throw new Error('No matching OpenRouter key was found to update limit.');
-		}
-	}
-
-	const { error } = await client
-		.from('user_accounts')
-		.update({
-			allowed_usage_usd: allowedUsageUsd,
-			provisioned_usage_limit_usd: provisionedLimit
-		})
-		.eq('user_id', userId);
-
-	if (error) {
-		throw new Error(error.message);
-	}
-}
-
 export async function markOnboardingVideoWatched(userId: string, accessToken: string) {
 	await ensureUserProfileRecord(userId, accessToken);
 	const client = createSupabaseAuthedClient(accessToken);
@@ -969,188 +548,17 @@ export async function markOnboardingVideoWatched(userId: string, accessToken: st
 	}
 }
 
-export async function provisionApiKeyForFirstSso(userId: string, accessToken: string): Promise<ProvisionResult> {
-	await ensureUserVerified(userId, accessToken);
-	await ensureUserProfileRecord(userId, accessToken);
-	await ensureUserAccountRecord(userId, accessToken);
-
-	const client = createSupabaseAuthedClient(accessToken);
-	const privilegedClient = createSupabaseServiceRoleClient();
-	const [profileResult, accountResult] = await Promise.all([
-		client
-			.from('user_profiles')
-			.select('first_sso_completed')
-			.eq('user_id', userId)
-			.maybeSingle(),
-		client
-			.from('user_accounts')
-			.select('api_key_hash,allowed_usage_usd,usage_carried_forward_usd')
-			.eq('user_id', userId)
-			.maybeSingle()
-	]);
-
-	if (profileResult.error) {
-		throw new Error(profileResult.error.message);
-	}
-
-	if (accountResult.error) {
-		throw new Error(accountResult.error.message);
-	}
-
-	const alreadyCompleted = Boolean(profileResult.data?.first_sso_completed);
-	const existingRemoteHash = accountResult.data?.api_key_hash?.trim() ?? '';
-	if (alreadyCompleted && existingRemoteHash) {
-		return { created: false, apiKey: null };
-	}
-
-	if (existingRemoteHash) {
-		const provisionedLimit = computeProvisionedUsageLimit(
-			toNumber(accountResult.data?.allowed_usage_usd),
-			toNumber(accountResult.data?.usage_carried_forward_usd)
-		);
-
-		const [{ error: accountUpdateError }, { error: profileUpdateError }] = await Promise.all([
-			privilegedClient
-				.from('user_accounts')
-				.update({
-					provisioned_usage_limit_usd: provisionedLimit,
-					api_key_disabled: false
-				})
-				.eq('user_id', userId),
-			privilegedClient
-				.from('user_profiles')
-				.update({ first_sso_completed: true })
-				.eq('user_id', userId)
-		]);
-
-		if (accountUpdateError) {
-			throw new Error(accountUpdateError.message);
-		}
-
-		if (profileUpdateError) {
-			throw new Error(profileUpdateError.message);
-		}
-
-		return { created: false, apiKey: null };
-	}
-
-	const provisionedLimit = computeProvisionedUsageLimit(
-		toNumber(accountResult.data?.allowed_usage_usd),
-		toNumber(accountResult.data?.usage_carried_forward_usd)
-	);
-	const newKey = await createOpenRouterApiKey({
-		name: `Nawab Auth ${userId}`,
-		limit: provisionedLimit
-	});
-
-	if (!newKey) {
-		throw new Error('OpenRouter management API key is not configured.');
-	}
-
-	const roll = await buildApiKeyRollResult(newKey.keyValue);
-
-	const [{ error: accountUpdateError }, { error: profileUpdateError }] = await Promise.all([
-		privilegedClient
-			.from('user_accounts')
-			.update({
-				api_key_hash: newKey.hash,
-				api_key_fingerprint: roll.fingerprint,
-				provisioned_usage_limit_usd: provisionedLimit,
-				api_key_disabled: false
-			})
-			.eq('user_id', userId),
-		privilegedClient
-			.from('user_profiles')
-			.update({ first_sso_completed: true })
-			.eq('user_id', userId)
-	]);
-
-	if (accountUpdateError) {
-		try {
-			await deleteOpenRouterApiKey(newKey.hash);
-		} catch (cleanupError) {
-			console.warn(`Failed to clean up provisioned OpenRouter key for ${userId}:`, cleanupError);
-		}
-
-		throw new Error(accountUpdateError.message);
-	}
-
-	if (profileUpdateError) {
-		try {
-			await deleteOpenRouterApiKey(newKey.hash);
-		} catch (cleanupError) {
-			console.warn(`Failed to clean up provisioned OpenRouter key for ${userId}:`, cleanupError);
-		}
-
-		throw new Error(profileUpdateError.message);
-	}
-
-	if (existingRemoteHash && existingRemoteHash !== newKey.hash) {
-		try {
-			await deleteOpenRouterApiKey(existingRemoteHash);
-		} catch (cleanupError) {
-			console.warn(`Failed to delete previous OpenRouter key for ${userId}:`, cleanupError);
-		}
-	}
-
-	return { created: true, apiKey: roll.keyValue };
-}
-
 async function deleteSupabaseAuthUser(userId: string) {
-	const serviceRoleKey = getServiceRoleKey();
-	if (!serviceRoleKey) {
-		throw new Error('SUPABASE_SERVICE_ROLE_KEY is required to permanently delete users.');
-	}
+	const privilegedClient = createSupabaseServiceRoleClient();
+	const { error } = await privilegedClient.auth.admin.deleteUser(userId);
 
-	const url = new URL(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, getSupabaseUrl());
-	const response = await fetch(url.toString(), {
-		method: 'DELETE',
-		headers: {
-			apikey: serviceRoleKey,
-			Authorization: `Bearer ${serviceRoleKey}`,
-			'Content-Type': 'application/json'
-		}
-	});
-
-	if (response.status === 404) {
-		return;
-	}
-
-	if (!response.ok) {
-		throw new Error(`Failed to delete auth user: ${response.status} ${response.statusText}`);
+	if (error && error.status !== 404) {
+		throw new Error(`Failed to delete auth user: ${error.message}`);
 	}
 }
 
-export async function deleteUserAccountPermanently(userId: string, accessToken: string) {
-	const client = createSupabaseAuthedClient(accessToken);
-
+export async function deleteUserAccountPermanently(userId: string) {
 	const errors: string[] = [];
-	const keyName = `Nawab Auth ${userId}`;
-
-	const { data: account, error: accountReadError } = await client
-		.from('user_accounts')
-		.select('api_key_hash')
-		.eq('user_id', userId)
-		.maybeSingle();
-
-	if (accountReadError) {
-		errors.push(`Failed to read account data: ${accountReadError.message}`);
-	}
-
-	try {
-		await deleteOpenRouterApiKeysByName(keyName);
-	} catch (error) {
-		errors.push(`Failed to delete OpenRouter keys by name: ${error instanceof Error ? error.message : String(error)}`);
-	}
-
-	const apiKeyHash = account?.api_key_hash?.trim() ?? '';
-	if (apiKeyHash) {
-		try {
-			await deleteOpenRouterApiKey(apiKeyHash);
-		} catch (error) {
-			errors.push(`Failed to delete OpenRouter key: ${error instanceof Error ? error.message : String(error)}`);
-		}
-	}
 
 	try {
 		await deleteSupabaseAuthUser(userId);

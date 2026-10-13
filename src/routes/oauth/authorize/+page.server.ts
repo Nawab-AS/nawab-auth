@@ -10,10 +10,10 @@ import {
 	type SupportedScope
 } from '$lib/server/oidc';
 import {
-	getOidcApiKeyGateState,
+	getOidcGateState,
 	getUserSsoState,
+	markFirstSsoCompleted,
 	markOnboardingVideoWatched,
-	provisionApiKeyForFirstSso,
 	getUserPreferredName
 } from '$lib/server/account';
 import { getAccessTokenFromCookies, getSupabaseUserFromCookies } from '$lib/server/supabase';
@@ -53,8 +53,7 @@ function getVideoGateSecret(): string {
 	const candidates = [
 		env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
 		env.OIDC_PRIVATE_JWK?.trim(),
-		env.OIDC_CLIENT_SECRET?.trim(),
-		env.OPENROUTER_MANAGEMENT_API_KEY?.trim()
+		env.OIDC_CLIENT_SECRET?.trim()
 	];
 
 	const secret = candidates.find((value) => Boolean(value));
@@ -250,7 +249,7 @@ export const load = async ({ url, cookies }) => {
 	}
 
 	const ssoState = await getUserSsoState(user.id, accessToken);
-	const gateState = await getOidcApiKeyGateState(user.id, accessToken);
+	const gateState = await getOidcGateState(user.id, accessToken);
 	if (!gateState.canProceedToOidc) {
 		throw redirect(303, `/login?redirect_to=${encodeURIComponent(`${url.pathname}${url.search}`)}`);
 	}
@@ -348,9 +347,9 @@ export const actions = {
 		}
 
 		const ssoState = await getUserSsoState(user.id, accessToken);
-		const gateState = await getOidcApiKeyGateState(user.id, accessToken);
+		const gateState = await getOidcGateState(user.id, accessToken);
 		if (!gateState.canProceedToOidc) {
-			throw error(403, 'An active API key is required before OIDC consent can be approved.');
+			throw error(403, 'Your account must be verified and onboarded before OIDC consent can be approved.');
 		}
 
 		if (!ssoState.isVerified) {
@@ -384,7 +383,7 @@ export const actions = {
 		}
 
 		if (!ssoState.firstSsoCompleted) {
-			await provisionApiKeyForFirstSso(user.id, accessToken);
+			await markFirstSsoCompleted(user.id, accessToken);
 		}
 
 		await createAuthorizationRedirect({

@@ -4,9 +4,6 @@ import {
 	isUserAdmin,
 	listAdminUsers,
 	deleteUserAccountPermanently,
-	rollApiKey,
-	setApiKeyDisabled,
-	setUsageLimitUsd,
 	setUserState,
 	type UserState
 } from '$lib/server/account';
@@ -19,7 +16,7 @@ import {
 	revokeProviderForUser
 } from '$lib/server/admin-auth';
 import { sendVerificationEmail } from '$lib/server/mail';
-import { getErrorMessage, parseBoolean } from '$lib/server/http';
+import { getErrorMessage } from '$lib/server/http';
 import { getAccessTokenFromCookies } from '$lib/server/supabase';
 import type { PageServerLoad } from './$types';
 import type { Actions } from './$types';
@@ -99,51 +96,6 @@ export const actions: Actions = {
 
 		throw redirect(303, `/admin?user_id=${encodeURIComponent(userId)}`);
 	},
-	refreshUsage: async ({ locals, cookies, request }) => {
-		await requireAdminAccess(locals, cookies);
-
-		const formData = await request.formData();
-		const userId = String(formData.get('userId') ?? '').trim();
-		if (!userId) {
-			return failAction('User ID is required.');
-		}
-
-		return { actionMessage: `Usage refreshed for ${userId}.` };
-	},
-	rollApiKey: async ({ locals, cookies, request }) => {
-		const { accessToken } = await requireAdminAccess(locals, cookies);
-
-		const formData = await request.formData();
-		const userId = String(formData.get('userId') ?? '').trim();
-		if (!userId) {
-			return failAction('User ID is required.');
-		}
-
-		try {
-			await rollApiKey(userId, accessToken);
-			return { actionMessage: `Rolled API key for ${userId}.` };
-		} catch (error) {
-			return failAction(getErrorMessage(error, 'Failed to roll API key.'));
-		}
-	},
-	setApiKeyDisabled: async ({ locals, cookies, request }) => {
-		const { accessToken } = await requireAdminAccess(locals, cookies);
-
-		const formData = await request.formData();
-		const userId = String(formData.get('userId') ?? '').trim();
-		const disabled = parseBoolean(String(formData.get('disabled') ?? 'true'), true);
-
-		if (!userId) {
-			return failAction('User ID is required.');
-		}
-
-		try {
-			await setApiKeyDisabled(userId, accessToken, disabled);
-			return { actionMessage: disabled ? `Disabled API key for ${userId}.` : `Enabled API key for ${userId}.` };
-		} catch (error) {
-			return failAction(getErrorMessage(error, 'Failed to update API key.'));
-		}
-	}, 
 	revokeProvider: async ({ locals, cookies, request }) => {
 		const { user, accessToken } = await requireAdminAccess(locals, cookies);
 
@@ -212,30 +164,8 @@ export const actions: Actions = {
 			return failAction(getErrorMessage(error, 'Failed to update user state.'));
 		}
 	},
-	setUsageLimit: async ({ locals, cookies, request }) => {
-		const { accessToken } = await requireAdminAccess(locals, cookies);
-
-		const formData = await request.formData();
-		const userId = String(formData.get('userId') ?? '').trim();
-		const limitValue = Number(String(formData.get('allowedUsageUsd') ?? '').trim());
-
-		if (!userId) {
-			return failAction('User ID is required.');
-		}
-
-		if (!Number.isFinite(limitValue) || limitValue < 0) {
-			return failAction('Usage limit must be a non-negative number.');
-		}
-
-		try {
-			await setUsageLimitUsd(userId, accessToken, limitValue);
-			return { actionMessage: `Updated usage limit for ${userId}.` };
-		} catch (error) {
-			return failAction(getErrorMessage(error, 'Failed to update usage limit.'));
-		}
-	},
 	deleteAccount: async ({ locals, cookies, request }) => {
-		const { accessToken } = await requireAdminAccess(locals, cookies);
+		await requireAdminAccess(locals, cookies);
 
 		const formData = await request.formData();
 		const userId = String(formData.get('userId') ?? '').trim();
@@ -245,7 +175,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			await deleteUserAccountPermanently(userId, accessToken);
+			await deleteUserAccountPermanently(userId);
 			return { actionMessage: `Permanently deleted ${userId} and removed associated data.` };
 		} catch (error) {
 			return failAction(getErrorMessage(error, 'Failed to permanently delete account.'));

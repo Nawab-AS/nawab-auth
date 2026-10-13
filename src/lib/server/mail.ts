@@ -26,11 +26,10 @@ function buildTextBody(input: VerificationEmailInput): string {
 		'',
 		'Next Steps:',
 		'1. Go to Nawab Chat (https://chat.nawab-as.dev) and click "Sign in with Nawab Auth"',
-		'2. Click the "Generate API Key" Button and copy it',
-		'3. Open the "set API key" menu (open the model seletor and hover over the gear icon) and paste the API key that you just copied',
-		'4. Enjoy access to a library of 300+ LLMs',
+		'2. Approve the consent screen (first sign-in also asks you to watch a short onboarding video)',
+		'3. Enjoy access to a library of 300+ LLMs',
 		'',
-		'Note: Treat your API key like a password. Anyone with it can access your credits. If your API key gets leaked, contact support immediately',
+		'Note: your chat usage is covered by a shared server key with a personal $3 starting balance. If you run out, contact support for a top-up.',
 		'',
 		'Signed,',
 		' - A Robot',
@@ -48,7 +47,7 @@ function buildHtmlBody(input: VerificationEmailInput): string {
 
 	// Linkify http/https URLs.
 	text = text.replace(
-		/(https?:\/\/[\w\-._~:\/?#[\]@!$&'()*+,;=%]+)\)/g,
+		/(https?:\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+)\)/g,
 		'<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>)'
 	);
 

@@ -8,7 +8,7 @@
 
 	let { data, form }: { data: PageData; form: ActionData | undefined } = $props();
 
-	type FilterMode = 'all' | 'admin' | 'banned' | 'unverified' | 'no-key';
+	type FilterMode = 'all' | 'admin' | 'banned' | 'unverified';
 
 	let query = $state('');
 	let filterMode = $state<FilterMode>('all');
@@ -22,7 +22,6 @@
 	const totalAdmins = $derived(data.users.filter((row) => row.isAdmin).length);
 	const totalBanned = $derived(data.users.filter((row) => row.banned).length);
 	const totalUnverified = $derived(data.users.filter((row) => row.userState === 'unverified').length);
-	const totalDisabledKeys = $derived(data.users.filter((row) => row.apiKeyDisabled).length);
 
 	const filteredUsers = $derived(
 		data.users.filter((row) => {
@@ -38,10 +37,6 @@
 				return false;
 			}
 
-			if (filterMode === 'no-key' && row.apiKeyAssigned) {
-				return false;
-			}
-
 			if (!normalizedQuery) {
 				return true;
 			}
@@ -54,91 +49,6 @@
 	);
 
 	const selectedRow = $derived(data.users.find((row) => row.userId === data.selectedUserId) ?? null);
-	const selectedEmail = $derived(
-		data.selectedUserId ? (data.emailByUserId[data.selectedUserId] ?? null) : null
-	);
-
-	const apiKeyStateLabel = $derived.by(() => {
-		if (!selectedRow) {
-			return 'No user selected';
-		}
-
-		if (!selectedRow.apiKeyAssigned) {
-			return 'Not assigned';
-		}
-
-		if (selectedRow.apiKeyDisabled) {
-			return 'Disabled';
-		}
-
-		return 'Assigned';
-	});
-
-	const remainingCredits = $derived.by(() => {
-		if (!data.selectedUser) {
-			return 0;
-		}
-
-		return (
-			data.selectedUser.allowedUsageUsd -
-			data.selectedUser.usageCarriedForwardUsd -
-			data.selectedUser.currentUsageUsd
-		);
-	});
-
-	function getApiKeyState(assigned: boolean, disabled: boolean): string {
-		if (!assigned) {
-			return 'Not assigned';
-		}
-
-		if (disabled) {
-			return 'Disabled';
-		}
-
-		return 'Assigned';
-	}
-
-	function formatUsageSummary(usedUsd: number, allowedUsd: number): string {
-		const allowedLabel = allowedUsd === 0 ? 'Unlimited' : `$${allowedUsd.toFixed(4)}`;
-		return `$${usedUsd.toFixed(4)}/${allowedLabel}`;
-	}
-
-	function getUsageMoneyTone(usedUsd: number, allowedUsd: number, disabled: boolean): string {
-		if (disabled || allowedUsd === 0) {
-			return 'blue';
-		}
-
-		if (usedUsd <= 0) {
-			return 'white';
-		}
-
-		const usageRatio = usedUsd / allowedUsd;
-		if (usageRatio < 0.4) {
-			return 'green';
-		}
-
-		if (usageRatio < 0.8) {
-			return 'orange';
-		}
-
-		if (usageRatio < 1) {
-			return 'red';
-		}
-
-		return 'blue';
-	}
-
-	function getUsageTone(remaining: number) {
-		if (remaining <= 0) {
-			return 'danger';
-		}
-
-		if (remaining < 10) {
-			return 'warn';
-		}
-
-		return 'ok';
-	}
 
 	function showSuccessToastMessage(message: string) {
 		toastMessage = message;
@@ -218,10 +128,6 @@
 				<p>Unverified</p>
 				<strong>{totalUnverified}</strong>
 			</article>
-			<article>
-				<p>Disabled keys</p>
-				<strong>{totalDisabledKeys}</strong>
-			</article>
 		</section>
 
 		{#if form?.actionMessage}
@@ -257,9 +163,6 @@
 						>
 							Unverified
 						</button>
-						<button type="button" class:active={filterMode === 'no-key'} onclick={() => (filterMode = 'no-key')}>
-							No key
-						</button>
 					</div>
 				</section>
 
@@ -275,16 +178,10 @@
 							>
 								<span class="user-topline">
 									<span class="mono">{row.userId}</span>
-									<span class="key-pill">{getApiKeyState(row.apiKeyAssigned, row.apiKeyDisabled)}</span>
 								</span>
 								<span class="user-email">{data.emailByUserId[row.userId] ? (data.emailByUserId[row.userId]?.split('@')[0].slice(0, 3)+"****@"+data.emailByUserId[row.userId]?.split('@')[1]) : 'No Email'}</span>
 								<span class="user-name">
 									<span class="user-name-text">{row.preferredName ?? 'Unspecified'}</span>
-									<span
-										class={`user-usage usage-${getUsageMoneyTone(row.usageCarriedForwardUsd, row.allowedUsageUsd, row.apiKeyDisabled)}`}
-									>
-										{formatUsageSummary(row.usageCarriedForwardUsd, row.allowedUsageUsd)}
-									</span>
 								</span>
 								<span class="flag-list">
 									<span class="flag">{row.userState}</span>
@@ -307,7 +204,6 @@
 						<h2>Selected user</h2>
 						<p class="mono">{selectedRow.userId}</p>
 						<p>{data.emailByUserId[selectedRow.userId] ? (data.emailByUserId[selectedRow.userId]?.split('@')[0].slice(0, 3)+"****@"+data.emailByUserId[selectedRow.userId]?.split('@')[1]) : 'No Email'}</p>
-						<p>API key: <strong>{apiKeyStateLabel}</strong></p>
 						<p>User state: <strong>{selectedRow.userState}</strong></p>
 						<div class="flag-list">
 							{#if selectedRow.isAdmin}
@@ -344,47 +240,6 @@
 					</article>
 
 					<div class="detail-grid">
-						<article class="detail-card action-card">
-							<h2>Usage</h2>
-							<p>Allowed: ${data.selectedUser.allowedUsageUsd.toFixed(4)}</p>
-							<p>Current usage: ${data.selectedUser.currentUsageUsd.toFixed(4)}</p>
-							<p class={`usage-${getUsageTone(remainingCredits)}`}>Remaining: ${remainingCredits.toFixed(4)}</p>
-							<form method="POST" action="?/setUsageLimit" use:enhance={enhanceAdminAction}>
-								<input type="hidden" name="userId" value={selectedRow.userId} />
-								<label class="search-wrap">
-									<span>Set allowed usage (USD)</span>
-									<input
-										type="number"
-										name="allowedUsageUsd"
-										min="0"
-										step="0.01"
-										value={data.selectedUser.allowedUsageUsd.toFixed(4)}
-									/>
-								</label>
-								<button type="submit" class="small-button">Save limit</button>
-							</form>
-							<form method="POST" action="?/refreshUsage" use:enhance={enhanceAdminAction}>
-								<input type="hidden" name="userId" value={selectedRow.userId} />
-								<button type="submit" class="small-button">Refresh usage</button>
-							</form>
-						</article>
-
-						<article class="detail-card action-card">
-							<h2>API key controls</h2>
-							<form method="POST" action="?/rollApiKey" use:enhance={enhanceAdminAction}>
-								<input type="hidden" name="userId" value={selectedRow.userId} />
-								<button type="submit">Roll API key</button>
-							</form>
-
-							<form method="POST" action="?/setApiKeyDisabled" use:enhance={enhanceAdminAction}>
-								<input type="hidden" name="userId" value={selectedRow.userId} />
-								<input type="hidden" name="disabled" value={selectedRow.apiKeyDisabled ? 'false' : 'true'} />
-								<button type="submit" class="outline">
-									{selectedRow.apiKeyDisabled ? 'Enable API key' : 'Disable API key'}
-								</button>
-							</form>
-						</article>
-
 						<article class="detail-card action-card">
 							<h2>Providers</h2>
 							{#if data.selectedProviders.length === 0}
@@ -543,7 +398,7 @@
 
 	.metric-grid {
 		display: grid;
-		grid-template-columns: repeat(5, minmax(0, 1fr));
+		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 0.7rem;
 	}
 
@@ -638,7 +493,6 @@
 		outline-offset: 2px;
 	}
 
-	input[type='number'],
 	select {
 		padding: 0.68rem 0.82rem;
 		border-radius: 0.6rem;
@@ -734,31 +588,6 @@
 		white-space: nowrap;
 	}
 
-	.user-usage {
-		white-space: nowrap;
-		font-variant-numeric: tabular-nums;
-	}
-
-	.usage-white {
-		color: #e5e7eb;
-	}
-
-	.usage-green {
-		color: #b6f7db;
-	}
-
-	.usage-orange {
-		color: #ffe2ad;
-	}
-
-	.usage-red {
-		color: #ffc0bf;
-	}
-
-	.usage-blue {
-		color: #8fc7ff;
-	}
-
 	.empty {
 		text-align: center;
 		color: var(--muted);
@@ -780,8 +609,7 @@
 		gap: 0.3rem;
 	}
 
-	.flag,
-	.key-pill {
+	.flag {
 		display: inline-flex;
 		align-items: center;
 		padding: 0.2rem 0.5rem;
@@ -894,8 +722,7 @@
 	}
 
 	button,
-	.ghost-link,
-	.small-button {
+	.ghost-link {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -922,15 +749,9 @@
 	}
 
 	button:hover,
-	.ghost-link:hover,
-	.small-button:hover {
+	.ghost-link:hover {
 		transform: translateY(-2px);
 		/* background: #f3f4f6; */
-	}
-
-	.small-button {
-		padding: 0.45rem 0.7rem;
-		font-size: 0.85rem;
 	}
 
 	.ghost-link {
@@ -949,18 +770,6 @@
 		background: #3b1212;
 		border-color: #7f1d1d;
 		color: #fecaca;
-	}
-
-	.usage-ok {
-		color: #b6f7db;
-	}
-
-	.usage-warn {
-		color: #ffe2ad;
-	}
-
-	.usage-danger {
-		color: #ffc0bf;
 	}
 
 	@media (max-width: 900px) {

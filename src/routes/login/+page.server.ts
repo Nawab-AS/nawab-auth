@@ -1,4 +1,3 @@
-import { env } from '$env/dynamic/private';
 import { fail, isRedirect, redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import type { Actions, PageServerLoad } from './$types';
@@ -11,16 +10,13 @@ import {
 import { isOtpEmailDomainAllowed } from '$lib/server/auth';
 import {
 	BANNED_ACCOUNT_MESSAGE,
-	enableApiKeyForOidcLogin,
-	generateApiKeyForOidcLogin,
-	getOidcApiKeyGateState,
+	getOidcGateState,
 	isUserBanned,
 	isUserOnboarded
 } from '$lib/server/account';
 import { getOAuthSettings } from '$lib/server/oauth-settings';
-import { getErrorMessage, normalizeReturnToPath } from '$lib/server/http';
+import { normalizeReturnToPath } from '$lib/server/http';
 import { getIssuer } from '$lib/server/oidc';
-import { encodeProxyApiKey } from '$lib/server/key-obfuscation';
 import type { Cookies } from '@sveltejs/kit';
 
 const OTP_COOLDOWN_MS = 45_000;
@@ -92,36 +88,6 @@ function resolveReturnToFromForm(
 	);
 }
 
-function requireOidcGateActionContext(
-	locals: App.Locals,
-	cookies: Cookies,
-	returnTo: string
-) {
-	const user = locals.user;
-	if (!user) {
-		throw redirect(303, '/login');
-	}
-
-	if (!returnTo.startsWith('/oauth/authorize')) {
-		return {
-			error: fail(400, {
-				gateMessage: 'This action is only available for OIDC sign-in.',
-				returnTo
-			})
-		};
-	}
-
-	const accessToken = getAccessTokenFromCookies(cookies);
-	if (!accessToken) {
-		throw redirect(303, '/login');
-	}
-
-	return {
-		user,
-		accessToken
-	};
-}
-
 export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 	const currentCookieReturnTo = cookies.get(AUTH_RETURN_TO_COOKIE);
 	const requestedReturnTo = url.searchParams.get('redirect_to') ?? url.searchParams.get('return_to');
@@ -173,13 +139,13 @@ export const load: PageServerLoad = async ({ url, locals, cookies }) => {
 
 	const isOidcAuthorizeReturn = returnTo.startsWith('/oauth/authorize');
 
-	// Redirect authenticated and onboarded users to the requested target, unless this is OIDC return that needs key gate checks.
+	// Redirect authenticated and onboarded users to the requested target, unless this is OIDC return that needs the verification gate checks.
 	if (!isOidcAuthorizeReturn) {
 		cookies.delete(AUTH_RETURN_TO_COOKIE, { path: '/' });
 		throw redirect(303, returnTo);
 	}
 
-	const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
+	const oidcGate = await getOidcGateState(user.id, accessToken);
 	return {
 		...baseData,
 		signedIn: true,
@@ -334,67 +300,6 @@ export const actions: Actions = {
 
 			const message = err instanceof Error ? err.message : 'Failed to verify OTP code.';
 			return fail(500, { message, returnTo, email, token });
-		}
-	},
-	generateApiKey: async ({ locals, cookies, request, url }) => {
-		const formData = await request.formData();
-		const returnTo = resolveReturnToFromForm(formData, url, cookies);
-		const context = requireOidcGateActionContext(locals, cookies, returnTo);
-		if ('error' in context) {
-			return context.error;
-		}
-
-		const { user, accessToken } = context;
-
-		try {
-			const generatedApiKey = await generateApiKeyForOidcLogin(user.id, accessToken);
-			const obfuscatedApiKey = generatedApiKey ? encodeProxyApiKey(generatedApiKey) : null;
-			if (obfuscatedApiKey === 'ERROR-INVALID-PREFIX') {
-				throw new Error('Failed to encode API key.');
-			}
-			const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
-			return {
-				returnTo,
-				signedIn: true,
-				oidcGate,
-				generatedApiKey: obfuscatedApiKey,
-				gateMessage: generatedApiKey
-					? 'API key generated. Copy it now. it will not be shown again.'
-					: 'API key already exists.'
-			};
-		} catch (error) {
-			return fail(400, {
-				returnTo,
-				signedIn: true,
-				gateMessage: getErrorMessage(error, 'Failed to generate API key.')
-			});
-		}
-	},
-	enableApiKey: async ({ locals, cookies, request, url }) => {
-		const formData = await request.formData();
-		const returnTo = resolveReturnToFromForm(formData, url, cookies);
-		const context = requireOidcGateActionContext(locals, cookies, returnTo);
-		if ('error' in context) {
-			return context.error;
-		}
-
-		const { user, accessToken } = context;
-
-		try {
-			await enableApiKeyForOidcLogin(user.id, accessToken);
-			const oidcGate = await getOidcApiKeyGateState(user.id, accessToken);
-			return {
-				returnTo,
-				signedIn: true,
-				oidcGate,
-				gateMessage: 'API key enabled.'
-			};
-		} catch (error) {
-			return fail(400, {
-				returnTo,
-				signedIn: true,
-				gateMessage: getErrorMessage(error, 'Failed to enable API key.')
-			});
 		}
 	}
 };
